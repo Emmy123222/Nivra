@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM is needed for wallet.ts's `window`/`Window` (DApp Connector detection) —
+    // this package spans both browser-safe (wallet, commitments, payment-link) and
+    // Node-only (node.ts) code; harmless to include DOM types for the Node half too.
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts"]
+}

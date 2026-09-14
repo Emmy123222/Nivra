@@ -1,0 +1,31 @@
+{
+  "name": "@nivra/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "compact": "compact compile src/invoice_registry.compact src/managed/invoice_registry",
+    "build": "rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/midnight-js-network-id": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

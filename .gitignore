@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+.next/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+contracts/src/managed/
+apps/web/public/keys/
+apps/web/public/zkir/
+.compact/
+coverage/

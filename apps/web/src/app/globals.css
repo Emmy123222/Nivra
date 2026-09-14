@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+:root {
+  --font-geist-sans: "Inter", "SF Pro Display", "Segoe UI", Arial, sans-serif;
+  --font-geist-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --bg: #080a0c;
+  --bg-elevated: #0d1012;
+  --surface: #111519;
+  --surface-hover: #171c20;
+  --surface-soft: #171b18;
+  --border: rgba(245, 247, 239, 0.09);
+  --border-strong: rgba(245, 247, 239, 0.16);
+  --text-primary: #f3f4ed;
+  --text-secondary: #aeb3ac;
+  --text-muted: #747b75;
+  --accent: #c7ff5e;
+  --accent-bright: #ddff9d;
+  --accent-cyan: #7ae7db;
+  --accent-ink: #10140d;
+  --success: #81e6ad;
+  --success-bg: rgba(129, 230, 173, 0.11);
+  --warning: #f5cb76;
+  --warning-bg: rgba(245, 203, 118, 0.11);
+  --danger: #ff8b83;
+  --danger-bg: rgba(255, 139, 131, 0.11);
+  --info: #8cc9ff;
+  --info-bg: rgba(140, 201, 255, 0.11);
+  --background: var(--bg);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* { box-sizing: border-box; border-color: var(--border); }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    radial-gradient(48rem 38rem at 86% 5%, rgba(199, 255, 94, 0.075), transparent 65%),
+    radial-gradient(40rem 30rem at 4% 35%, rgba(122, 231, 219, 0.045), transparent 70%),
+    #080a0c;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.18;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.13'/%3E%3C/svg%3E");
+}
+::selection { background: var(--accent); color: var(--accent-ink); }
+a, button, input, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { outline-offset: 4px; }
+:focus-visible { outline: 2px solid var(--accent); }
+
+.glass {
+  background: rgba(8, 10, 12, 0.72);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+}
+.card {
+  background: linear-gradient(145deg, rgba(23, 27, 29, 0.88), rgba(13, 16, 18, 0.96));
+  border: 1px solid var(--border);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+}
+.gradient-text {
+  background: linear-gradient(115deg, #f3f4ed 12%, #c7ff5e 58%, #7ae7db 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 8px 28px rgba(199, 255, 94, 0.12);
+  transition: transform 180ms ease, background 180ms ease, box-shadow 180ms ease;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #d5ff83;
+  transform: translateY(-2px);
+  box-shadow: 0 1px 0 rgba(255,255,255,.4) inset, 0 12px 34px rgba(199,255,94,.2);
+}
+.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:disabled { opacity: 0.48; filter: saturate(0.4); }
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  transition: background 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: rgba(199, 255, 94, 0.36);
+  transform: translateY(-2px);
+}
+.input-field {
+  background: rgba(8, 10, 12, 0.72);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.input-field:focus {
+  outline: none;
+  background: rgba(12, 15, 16, 0.9);
+  border-color: rgba(199, 255, 94, 0.7);
+  box-shadow: 0 0 0 3px rgba(199, 255, 94, 0.09);
+}
+.input-field::placeholder { color: var(--text-muted); }
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--accent-bright);
+  font-size: 0.72rem;
+  line-height: 1;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.eyebrow::before { content: ""; width: 1.7rem; height: 1px; background: var(--accent); }
+.display-title {
+  font-weight: 520;
+  letter-spacing: -0.058em;
+  line-height: 0.96;
+  text-wrap: balance;
+}
+.grid-line {
+  background-image:
+    linear-gradient(rgba(255,255,255,.034) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.034) 1px, transparent 1px);
+  background-size: 38px 38px;
+}
+.shine-border { position: relative; }
+.shine-border::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(140deg, rgba(199,255,94,.48), rgba(255,255,255,.05) 35%, rgba(122,231,219,.24));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slow-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-10px) rotate(0deg); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: .55; }
+  50% { opacity: 1; }
+}
+.fade-up { animation: fade-up 650ms cubic-bezier(.16,1,.3,1) both; }
+.float-slow { animation: slow-float 7s ease-in-out infinite; }
+.pulse-soft { animation: pulse-soft 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

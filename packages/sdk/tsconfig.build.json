@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "outDir": "dist"
+  },
+  "include": [
+    "src/index.ts",
+    "src/node.ts",
+    "src/commitments.ts",
+    "src/encoding.ts",
+    "src/types.ts",
+    "src/common-types.ts",
+    "src/providers.ts",
+    "src/contract.ts",
+    "src/payment-link.ts",
+    "src/receipt-link.ts",
+    "src/wallet.ts"
+  ]
+}
