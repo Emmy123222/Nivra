@@ -53,16 +53,15 @@ change; the gap was in test coverage, now closed by
 "at the exact deadline instant, treats the invoice as expired, not payable (no
 off-by-one gap)".
 
-### 3. `claimSettlement` coin-invoice binding (High) — Fixed prior session
+### 3. Delayed claim custody/index gap (High) — Fixed
 
 Documented in full in `docs/INVARIANTS.md` (INVARIANT 8) and `docs/BUILD_STATUS.md`.
-Restated here because it belongs in this review's record: before the fix, a merchant
-(with a valid `merchantSecret`, so not an unauthenticated attacker, but still a real
-gap) could point `claimSettlement` at any coin the contract held for any of their own
-paid invoices, potentially double-claiming a single coin against multiple invoices.
-Fixed by binding `settleInvoice`'s received coin to the invoice via
-`paidCoinCommitment`, and adding a `claimed` flag. Verified by the "CLAIM SETTLEMENT"
-test suite (5 tests).
+Restated here because it belongs in this review's record: a delayed withdrawal needs
+the qualified Merkle index of the contract-owned output, but the browser wallet API
+does not give that private contract coin to the merchant. The live flow now consumes
+the new contract output in the same transaction as a transient (`mt_index = 0`) and
+sends it to the payout key committed at invoice creation. A modified link with a
+different payout key is rejected. Verified by the "ATOMIC PAYOUT" tests.
 
 ### 4. Fake settlement via simulation-only witness trust (Informational) — environment limitation
 
@@ -117,10 +116,10 @@ For each category, what was checked and where the evidence lives:
 | Unauthorized cancellation | Attacker without `merchantSecret` calls `cancelInvoice` | contract tests: "rejects cancellation by an attacker without the merchant's secret" |
 | Fake settlement | Witness coin mismatched in color/value; also see Finding 4 above | contract tests: "rejects settlement when the offered coin's value does not match the invoice amount"; Finding 4 |
 | Double settlement | Settle an already-PAID invoice | contract tests: "rejects a second settlement attempt against an already-PAID invoice" |
-| Replay (settlement claim) | Claim the same coin/invoice twice | contract tests: "CLAIM SETTLEMENT" suite (5 tests); Finding 3 |
+| Payout redirection / replay | Substitute a payout key or submit settlement twice | redirected-key test + double-settlement test; Finding 3 |
 | Commitment manipulation | Distinct inputs must give distinct/stable commitments | contract tests: "gives two invoices with different nonces different commitments"; SDK `commitments.test.ts` (4 tests, byte-exact match against the real circuit) |
 | Receipt forgery | Wrong secret; unpaid invoice; secret from a *different* paid invoice | SDK `contract.test.ts`: "rejects a wrong receipt secret", "rejects an invoice that was never paid", "rejects invoice A's genuine receipt secret when presented against invoice B's commitment" (added this review) |
-| Merchant impersonation | Cancel/claim without the real `merchantSecret` | contract tests: cancel/claim authorization suites |
+| Merchant impersonation | Cancel without the real `merchantSecret` | contract cancellation authorization tests |
 | Payer impersonation | N/A by design | Finding 6 |
 | Expiry bypass | Settle after expiry; mark-expire before expiry; exact boundary | contract tests: "EXPIRY" suite (6 tests after this review, including Finding 2) |
 | Privacy leakage | Public `InvoiceRecord` schema never widens to leak private fields | contract tests: "PRIVACY" suite, asserts the exact public field list |

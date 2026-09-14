@@ -32,9 +32,14 @@
 // this payload's authentication.
 
 import { bytesToHex, hexToBytes } from "./encoding.js";
-import { computeInvoiceCommitment, type InvoiceCommitmentInput } from "./commitments.js";
+import {
+  computeInvoiceCommitment,
+  computePayoutKeyCommitment,
+  type InvoiceCommitmentInput,
+} from "./commitments.js";
 import { getInvoiceRegistryLedger } from "./contract.js";
 import type { InvoiceRegistryProviders } from "./common-types.js";
+import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 
 export type PaymentLinkPayload = {
   readonly version: 1;
@@ -47,6 +52,9 @@ export type PaymentLinkPayload = {
   readonly metadataHash: string; // hex(32 bytes)
   readonly invoiceSecret: string; // hex(32 bytes)
   readonly nonce: string; // hex(32 bytes)
+  /** Merchant shielded keys, revealed only inside this fragment bearer link. */
+  readonly merchantPayoutKey: string;
+  readonly merchantEncryptionPublicKey: string;
 };
 
 export type InvoiceForLink = Omit<InvoiceCommitmentInput, "merchantCommitment">;
@@ -56,6 +64,8 @@ export const buildPaymentLinkPayload = (
   contractAddress: string,
   merchantCommitment: Uint8Array,
   invoice: InvoiceForLink,
+  merchantPayoutKey = "",
+  merchantEncryptionPublicKey = "",
 ): PaymentLinkPayload => ({
   version: 1,
   contractAddress,
@@ -66,6 +76,8 @@ export const buildPaymentLinkPayload = (
   metadataHash: bytesToHex(invoice.metadataHash),
   invoiceSecret: bytesToHex(invoice.invoiceSecret),
   nonce: bytesToHex(invoice.nonce),
+  merchantPayoutKey,
+  merchantEncryptionPublicKey,
 });
 
 const bytesToBase64Url = (bytes: Uint8Array): string => {
@@ -100,7 +112,9 @@ export const decodePaymentLinkPayload = (token: string): PaymentLinkPayload => {
     typeof (parsed as { expiry?: unknown }).expiry !== "string" ||
     typeof (parsed as { metadataHash?: unknown }).metadataHash !== "string" ||
     typeof (parsed as { invoiceSecret?: unknown }).invoiceSecret !== "string" ||
-    typeof (parsed as { nonce?: unknown }).nonce !== "string"
+    typeof (parsed as { nonce?: unknown }).nonce !== "string" ||
+    typeof (parsed as { merchantPayoutKey?: unknown }).merchantPayoutKey !== "string" ||
+    typeof (parsed as { merchantEncryptionPublicKey?: unknown }).merchantEncryptionPublicKey !== "string"
   ) {
     throw new Error("Malformed payment link payload");
   }
@@ -160,5 +174,13 @@ export const verifyInvoicePaymentLink = async (
 ): Promise<PaymentLinkVerification> => {
   const commitment = invoiceCommitmentFromPaymentLink(payload);
   const ledger = await getInvoiceRegistryLedger(providers, payload.contractAddress);
-  return { commitment, onChain: ledger?.invoices.member(commitment) ?? false };
+  if (!ledger?.invoices.member(commitment) || !payload.merchantPayoutKey) {
+    return { commitment, onChain: false };
+  }
+  const record = ledger.invoices.lookup(commitment);
+  const expectedPayout = computePayoutKeyCommitment(encodeCoinPublicKey(payload.merchantPayoutKey));
+  return {
+    commitment,
+    onChain: bytesToHex(record.payoutKeyCommitment) === bytesToHex(expectedPayout),
+  };
 };

@@ -14,11 +14,15 @@ import type { ProvableCircuitId } from "@midnight-ntwrk/compact-js";
 
 export type InvoiceRegistryCircuits = ProvableCircuitId<InvoiceRegistry.Contract<NivraPrivateState>>;
 
-export const InvoiceRegistryPrivateStateId = "nivraInvoiceRegistryPrivateState";
+export const InvoiceRegistryPrivateStateId = "nivraInvoiceRegistryMerchantPrivateState";
+export const InvoiceRegistryPayerPrivateStateId = "nivraInvoiceRegistryPayerPrivateState";
+export type InvoiceRegistryPrivateStateIds =
+  | typeof InvoiceRegistryPrivateStateId
+  | typeof InvoiceRegistryPayerPrivateStateId;
 
 export type InvoiceRegistryProviders = MidnightProviders<
   InvoiceRegistryCircuits,
-  typeof InvoiceRegistryPrivateStateId,
+  InvoiceRegistryPrivateStateIds,
   NivraPrivateState
 >;
 

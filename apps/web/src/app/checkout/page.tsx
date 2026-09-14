@@ -5,14 +5,16 @@ import {
   parsePaymentLinkUrl,
   verifyInvoicePaymentLink,
   invoiceCommitmentFromPaymentLink,
-  joinInvoiceRegistry,
   bytesToHex,
+  hexToBytes,
   type PaymentLinkPayload,
-  type DeployedInvoiceRegistryContract,
   type InvoiceRegistryProviders,
+  settleInvoiceFromPaymentLink,
+  buildReceiptLinkPayload,
+  buildReceiptLinkUrl,
 } from "@nivra/sdk";
-import { createNivraPrivateState } from "@nivra/contracts";
 import { useWallet } from "@/lib/wallet-context";
+import { encodeRawTokenType } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 
 /** Wraps the SDK's `verifyInvoicePaymentLink` so "no wallet yet" / an unreachable indexer reads as "unverified", not a crash. */
 const checkOnChain = async (
@@ -33,10 +35,11 @@ type CheckoutState =
   | { step: "invalid"; reason: string }
   | { step: "ready"; payload: PaymentLinkPayload; commitment: string; onChain: boolean }
   | { step: "paying"; payload: PaymentLinkPayload; commitment: string }
+  | { step: "paid"; payload: PaymentLinkPayload; commitment: string; receiptUrl: string; txId: string }
   | { step: "error"; message: string };
 
 export default function CheckoutPage() {
-  const { status, connect, connecting, providers } = useWallet();
+  const { status, connect, connecting, providers, connectedApi } = useWallet();
   const [state, setState] = useState<CheckoutState>({ step: "loading" });
 
   // The payment link's private fields live only in the URL fragment (never sent to any
@@ -81,26 +84,34 @@ export default function CheckoutPage() {
     setState({ step: "paying", payload, commitment });
     try {
       if (!providers) throw new Error("Wallet not connected.");
-      // Wave 1 limitation, stated plainly: paying does not require the payer to hold a
-      // merchant credential, but joinInvoiceRegistry's private-state shape currently
-      // requires *some* NivraPrivateState. A payer-only private state (no merchant
-      // secret) is a real follow-up — see docs/BUILD_STATUS.md — so this uses a
-      // throwaway credential the payer never needs again.
-      const deployed: DeployedInvoiceRegistryContract = await joinInvoiceRegistry(
+      const verified = await verifyInvoicePaymentLink(providers, payload);
+      if (!verified.onChain) throw new Error("This invoice is not active on-chain. Payment was not submitted.");
+      if (BigInt(payload.expiry) <= BigInt(Math.floor(Date.now() / 1000))) {
+        throw new Error("This invoice has expired. Ask the merchant for a new invoice.");
+      }
+      if (!connectedApi) throw new Error("Wallet connection was lost. Reconnect and try again.");
+      const balances = await connectedApi.getShieldedBalances();
+      const matchingBalance = Object.entries(balances).find(
+        ([type]) => bytesToHex(encodeRawTokenType(type)) === payload.tokenColor,
+      )?.[1] ?? BigInt(0);
+      if (matchingBalance < BigInt(payload.amount)) {
+        throw new Error(`Insufficient shielded balance. Required ${payload.amount}; available ${matchingBalance.toString()}.`);
+      }
+
+      const payerReceiptSecret = crypto.getRandomValues(new Uint8Array(32));
+      const finalized = await settleInvoiceFromPaymentLink(
         providers,
         window.location.origin,
+        payload,
+        payerReceiptSecret,
+      );
+      const receipt = buildReceiptLinkPayload(
         payload.contractAddress,
-        createNivraPrivateState(crypto.getRandomValues(new Uint8Array(32)), crypto.getRandomValues(new Uint8Array(32))),
+        hexToBytes(commitment),
+        payerReceiptSecret,
       );
-      void deployed; // joined successfully; real settlement wiring is the remaining gap, thrown below
-
-      // The payer's wallet, not this app, is the source of the actual coin used to settle —
-      // integrating a real payment coin selection through the DApp Connector's
-      // `makeIntent`/proving flow is the next real piece of settlement wiring (tracked in
-      // docs/BUILD_STATUS.md). This demo cannot fabricate a coin the wallet didn't provide.
-      throw new Error(
-        "Real settlement requires selecting an actual Zswap coin through your wallet — not wired up yet in this Wave 1 checkout. The contract's settleInvoice circuit itself is implemented and tested (see contracts/src/test).",
-      );
+      const receiptUrl = buildReceiptLinkUrl(`${window.location.origin}/receipt`, receipt);
+      setState({ step: "paid", payload, commitment, receiptUrl, txId: finalized.public.txId });
     } catch (e) {
       setState({ step: "error", message: e instanceof Error ? e.message : String(e) });
     }
@@ -118,7 +129,29 @@ export default function CheckoutPage() {
     return <CenteredMessage tone="error">This payment link is malformed: {state.reason}</CenteredMessage>;
   }
   if (state.step === "error") {
-    return <CenteredMessage tone="error">{state.message}</CenteredMessage>;
+    return (
+      <CenteredMessage tone="error">
+        {state.message}
+        <button type="button" className="btn-ghost mt-5 rounded-full px-5 py-2 text-xs" onClick={() => window.location.reload()}>
+          Try again
+        </button>
+      </CenteredMessage>
+    );
+  }
+  if (state.step === "paid") {
+    return (
+      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-16 sm:px-6">
+        <div className="card fade-up rounded-2xl p-8 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--success-bg)] text-[var(--success)]"><CheckIcon /></div>
+          <h1 className="mt-4 text-2xl font-semibold">Payment complete</h1>
+          <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">The shielded settlement was routed to the merchant and your private receipt was registered.</p>
+          <p className="mt-5 break-all rounded-lg bg-[var(--bg-elevated)] p-3 font-mono text-[10px] text-[var(--text-muted)]">Transaction {state.txId}</p>
+          <a href={state.receiptUrl} className="btn-primary mt-5 inline-flex rounded-full px-6 py-3 text-sm font-semibold">Open receipt</a>
+          <button type="button" onClick={() => void navigator.clipboard.writeText(state.receiptUrl)} className="btn-ghost mt-3 w-full rounded-full px-6 py-3 text-sm">Copy private receipt link</button>
+          <p className="mt-3 text-[11px] leading-5 text-[var(--warning)]">Save this link. Its URL fragment contains the secret needed to verify your receipt.</p>
+        </div>
+      </main>
+    );
   }
 
   const { payload, commitment } = state;

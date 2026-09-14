@@ -19,13 +19,15 @@ import {
   type FinalizedTransaction,
 } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import type { UnboundTransaction } from "@midnight-ntwrk/midnight-js-types";
+import { createProofProvider, type ProofProvider } from "@midnight-ntwrk/midnight-js-types";
 import { fromHex, toHex } from "@midnight-ntwrk/midnight-js-utils";
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
+import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import type { InvoiceRegistryCircuits, InvoiceRegistryProviders } from "@nivra/sdk";
-import { InvoiceRegistryPrivateStateId } from "@nivra/sdk";
+import { type InvoiceRegistryPrivateStateIds } from "@nivra/sdk";
 import type { NivraPrivateState } from "@nivra/contracts";
 import { browserPrivateStateProvider } from "./private-state-provider";
 import type { NetworkConfig } from "./network";
@@ -37,13 +39,47 @@ export const buildBrowserProviders = async (
 ): Promise<InvoiceRegistryProviders> => {
   const zkConfigPath = typeof window !== "undefined" ? window.location.origin : "";
   const zkConfigProvider = new FetchZkConfigProvider<InvoiceRegistryCircuits>(zkConfigPath);
-  const shieldedAddresses = await connectedApi.getShieldedAddresses();
+  await connectedApi.hintUsage([
+    "getConfiguration",
+    "getShieldedAddresses",
+    "getShieldedBalances",
+    "getProvingProvider",
+    "balanceUnsealedTransaction",
+    "submitTransaction",
+  ]);
+  const [shieldedAddresses, walletConfig] = await Promise.all([
+    connectedApi.getShieldedAddresses(),
+    connectedApi.getConfiguration(),
+  ]);
+
+  if (walletConfig.networkId !== network.networkId) {
+    throw new Error(
+      `Wallet connected to ${walletConfig.networkId}, but Nivra is configured for ${network.networkId}. Switch the wallet network and reconnect.`,
+    );
+  }
+  setNetworkId(walletConfig.networkId);
+
+  // Wallet configuration is authoritative for the user's indexer/prover choices.
+  // The local network config remains a fallback for wallets that omit the deprecated
+  // proverServerUri while delegated proving support is still uneven across extensions.
+  const proofServer = walletConfig.proverServerUri ?? network.proofServer;
+  let proofProvider: ProofProvider;
+  try {
+    const provingProvider = await connectedApi.getProvingProvider({
+      getZKIR: (location) => zkConfigProvider.getZKIR(location as InvoiceRegistryCircuits),
+      getProverKey: (location) => zkConfigProvider.getProverKey(location as InvoiceRegistryCircuits),
+      getVerifierKey: (location) => zkConfigProvider.getVerifierKey(location as InvoiceRegistryCircuits),
+    });
+    proofProvider = createProofProvider(provingProvider);
+  } catch {
+    proofProvider = httpClientProofProvider(proofServer, zkConfigProvider);
+  }
 
   return {
-    privateStateProvider: browserPrivateStateProvider<typeof InvoiceRegistryPrivateStateId, NivraPrivateState>(),
-    publicDataProvider: indexerPublicDataProvider(network.indexer, network.indexerWS),
+    privateStateProvider: browserPrivateStateProvider<InvoiceRegistryPrivateStateIds, NivraPrivateState>(),
+    publicDataProvider: indexerPublicDataProvider(walletConfig.indexerUri, walletConfig.indexerWsUri),
     zkConfigProvider,
-    proofProvider: httpClientProofProvider(network.proofServer, zkConfigProvider),
+    proofProvider,
     walletProvider: {
       getCoinPublicKey: () => shieldedAddresses.shieldedCoinPublicKey,
       getEncryptionPublicKey: () => shieldedAddresses.shieldedEncryptionPublicKey,

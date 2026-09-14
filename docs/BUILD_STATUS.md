@@ -20,10 +20,10 @@ reproducible test exists for it.
 | Contract: merchant authorization (`cancelInvoice`, `claimSettlement`) | TESTED | hash-preimage proof against `merchantCommitment`, not self-comparison; 3 cancel-auth tests + 2 claim-auth tests |
 | Contract: cancellation | TESTED | valid cancel, double-cancel rejected, cancelled invoice can't be settled |
 | Contract: expiry (`blockTimeLt`/`blockTimeGte`, `markExpired`) | TESTED | 5 tests using `advanceTimeTo` on the simulator; confirmed real block-time semantics, not assumed |
-| Contract: settlement via `receiveShielded` | TESTED | 5 tests: valid settle+receipt, wrong coin value, double-payment, cancelled-invoice payment, nonexistent invoice |
-| Contract: `claimSettlement` (merchant withdrawal via `sendShielded`) | TESTED | 5 tests, including a real correctness gap found and fixed during testing — see below |
+| Contract: atomic settlement via `receiveShielded` + `sendShielded` | TESTED | matching value/color is received and routed as a transient coin to the merchant key committed at invoice creation; redirected-key, double-payment, cancellation, expiry, and nonexistent-invoice paths tested |
+| Contract: payout binding | TESTED | `payoutKeyCommitment` prevents a modified payment link from redirecting funds; settlement sets `claimed = true` atomically |
 | Receipt commitment | TESTED | covered by the settlement test asserting `receipts.member(commitment)` |
-| Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 22/22 passing; `npm run typecheck` clean; run via `npm test --workspace=contracts` |
+| Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 24/24 passing; run via `npm test --workspace=contracts` |
 | SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | `computeMerchantCommitment`/`computeInvoiceCommitment`/`computeCoinCommitment`/`computeReceiptCommitment`; 4/4 tests cross-check output against the real compiled contract's own `createInvoice` result, byte-for-byte |
 | SDK: contract deployment/circuit-call layer | DONE | `packages/sdk/src/{common-types,providers,contract}.ts`; typechecks cleanly against the real installed `@midnight-ntwrk/midnight-js@4.1.1`/`compact-js@2.5.1` packages; not run end-to-end (no proof server/live network in this sandbox) — see below |
 | Frontend (`apps/web`) | DONE | Next.js 16 + Tailwind app; all 6 routes (landing, dashboard, create, checkout, connect, receipt) verified rendering with zero console/page errors in a real headless browser (Playwright); see below |
@@ -44,8 +44,7 @@ a real QR-coded payment link (`/dashboard/invoices/[commitment]`), and customer
 checkout that parses a real payment link, recomputes its commitment, and attempts a
 real on-chain membership check (`/checkout`).
 
-**What's real vs. explicitly gated, stated plainly (Rule: never fake blockchain
-functionality):**
+**What is implemented:**
 - Payment-link generation, decoding, and commitment verification (`@nivra/sdk`'s
   `payment-link.ts`/`commitments.ts`) are real, pure, and already unit-tested — these
   work identically here and in production.
@@ -59,12 +58,15 @@ functionality):**
   correctly polls for `window.midnight`, times out, and reports "No Midnight wallet
   found" — the honest, correct outcome in an environment with no wallet extension
   installed, not a fake success.
-- Actual payment settlement (selecting a real Zswap coin through the wallet and
-  calling `settleInvoice`) is explicitly **not wired up** in the checkout page — it
-  throws a clear, labeled error explaining why rather than fabricating a "payment
-  successful" state. The contract's `settleInvoice`/`claimSettlement` circuits
-  themselves are implemented and tested (`contracts/src/test`); only the browser-side
-  "ask the wallet for a specific coin" step is the remaining gap.
+- Checkout reads the payer's shielded balances, verifies the invoice on-chain,
+  constructs the contract's exact requested output, and lets
+  `balanceUnsealedTransaction` select wallet inputs and change. `settleInvoice`
+  atomically receives that output, spends it as a transient coin to the committed
+  merchant payout key, and registers the payer's receipt. No delayed custodial claim
+  or Merkle-index discovery is required.
+- Provider configuration now follows the wallet's selected indexer and prover URI,
+  validates the network ID, restores an existing merchant registry on reconnect, and
+  keeps merchant/payer private states under separate IDs.
 
 **Verification performed:** `npx tsc --noEmit` and `npx eslint src` both clean.
 `npm run dev` started successfully; all 5 main routes (`/`, `/dashboard`,
@@ -199,18 +201,15 @@ this sandbox (see `docs/TOOLCHAIN.md`), so there is no way here to construct a r
 `WalletProvider & MidnightProvider` or exercise `deployContract` end-to-end. Marked
 `DONE`, deliberately not `TESTED`, per this file's own rule at the top.
 
-## Real correctness gap found and fixed during testing
+## Real correctness gaps found and fixed during testing
 
-While writing the `claimSettlement` test, it became clear the original design had no
-cryptographic binding between *which* coin a merchant claims and *which* invoice it
-was actually paid with — any caller who knew the merchant's secret could point
-`claimSettlement` at any coin the contract held, for any of that merchant's paid
-invoices, including the same coin twice. Fixed by adding `paidCoinCommitment` (a
-domain-separated hash of the settling coin's `nonce`/`color`/`value`, written by
-`settleInvoice`) and a `claimed` flag to `InvoiceRecord`; `claimSettlement` now proves
-it holds the exact coin that settled this specific invoice and can only run once per
-invoice. See `docs/INVARIANTS.md` INVARIANT 8. This is exactly the kind of gap the
-project's testing-first rule (Phase 12) exists to catch before it ships, not after.
+The earlier delayed-claim design required the merchant client to recover a qualified
+contract-owned coin's Merkle index after checkout. The DApp Connector does not expose
+that contract coin to the merchant wallet. The implementation now avoids that brittle
+custody boundary: settlement receives and spends the new coin in one call, using the
+ledger's supported transient-output path (`mt_index = 0`). A payout-key commitment
+binds the destination before the invoice is shared, so a payer cannot redirect it.
+Tests cover atomic payout and malicious key substitution.
 
 ## Verification items — resolved by actually compiling, not by reading docs alone
 
@@ -239,8 +238,8 @@ project's testing-first rule (Phase 12) exists to catch before it ships, not aft
    ledger. Whether this is acceptable for the product's privacy claims, or whether
    Wave 2 needs an additional mixing/relayer step, is a product decision, not a
    technical unknown — flagging for discussion, not blocking Wave 1.
-3. **`claimSettlement`'s double-claim guard** — resolved. See "Real correctness gap
-   found and fixed during testing" above and INVARIANT 8 in `docs/INVARIANTS.md`.
+3. **Delayed claim/index discovery** — removed from the live path by atomic transient
+   payout; see INVARIANT 8.
 4. **Full end-to-end test against a real deployed network** (real proof server, real
    testnet transaction, real wallet) has not been attempted — everything above is
    circuit-level simulation, which is honest and useful but is not the same claim as

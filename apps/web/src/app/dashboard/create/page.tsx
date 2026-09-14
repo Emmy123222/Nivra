@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { bytesToHex } from "@nivra/sdk";
+import { encodeRawTokenType } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { useWallet } from "@/lib/wallet-context";
 import { addStoredInvoice } from "@/lib/invoice-store";
 
-const randomHex32 = () => bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
+type WalletToken = { type: string; encoded: string; balance: bigint };
 
 // Assumed convention, not yet verified against a live network (no Docker/proof
 // server available in this sandbox — see docs/TOOLCHAIN.md): `expiry` is
@@ -17,20 +18,60 @@ const nowPlusDays = (days: number) => BigInt(Math.floor(Date.now() / 1000) + day
 
 export default function CreateInvoicePage() {
   const router = useRouter();
-  const { status, contract, ensureContract } = useWallet();
+  const { status, contract, connectedApi, ensureContract } = useWallet();
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
-  const [tokenColor, setTokenColor] = useState(() => randomHex32());
+  const [tokenColor, setTokenColor] = useState("");
+  const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
+  const [loadingTokens, setLoadingTokens] = useState(true);
   const [days, setDays] = useState("7");
   const [metadataNote, setMetadataNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (!connectedApi) return;
+    let cancelled = false;
+    void connectedApi
+      .getShieldedBalances()
+      .then((balances) => {
+        if (cancelled) return;
+        const tokens = Object.entries(balances)
+          .filter(([, balance]) => balance > BigInt(0))
+          .map(([type, balance]) => ({ type, balance, encoded: bytesToHex(encodeRawTokenType(type)) }));
+        setWalletTokens(tokens);
+        setTokenColor((current) => current || tokens[0]?.encoded || "");
+      })
+      .catch((e) => {
+        if (!cancelled) setError(`Could not read wallet balances: ${e instanceof Error ? e.message : String(e)}`);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTokens(false);
+      });
+    return () => { cancelled = true; };
+  }, [connectedApi]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!amount || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
-      setError("Enter a positive amount.");
+    let parsedAmount: bigint;
+    try {
+      parsedAmount = BigInt(amount);
+    } catch {
+      setError("Enter a whole-number amount.");
+      return;
+    }
+    if (parsedAmount <= BigInt(0) || parsedAmount > (BigInt(2) ** BigInt(64) - BigInt(1))) {
+      setError("Amount must be between 1 and the Uint64 maximum.");
+      return;
+    }
+    if (!tokenColor) {
+      setError("Your wallet has no shielded token balance available for invoicing.");
+      return;
+    }
+    const parsedDays = Number(days);
+    if (!Number.isInteger(parsedDays) || parsedDays < 1 || parsedDays > 3650) {
+      setError("Expiry must be between 1 and 3650 whole days.");
       return;
     }
     setSubmitting(true);
@@ -38,9 +79,9 @@ export default function CreateInvoicePage() {
       const deployed = contract ?? (await ensureContract());
 
       const invoice = {
-        amount: BigInt(amount),
+        amount: parsedAmount,
         tokenColor: hexToBytes(tokenColor),
-        expiry: nowPlusDays(Number(days)),
+        expiry: nowPlusDays(parsedDays),
         // The metadata note lives only in this browser (see invoice-store.ts) — only its
         // hash goes on-chain, per docs/PRIVACY_MODEL.md.
         metadataHash: await sha256(metadataNote || label || "nivra-invoice"),
@@ -59,6 +100,8 @@ export default function CreateInvoicePage() {
       // `createInvoice`'s JS-typed return value (the raw commitment) lives under
       // `.private.result` — CallResult's privacy-sensitive `private` field, not `.public`.
       const commitmentHex = bytesToHex(finalizedTx.private.result);
+      if (!connectedApi) throw new Error("Wallet connection was lost while creating the invoice.");
+      const addresses = await connectedApi.getShieldedAddresses();
 
       addStoredInvoice({
         commitment: commitmentHex,
@@ -68,6 +111,8 @@ export default function CreateInvoicePage() {
         metadataHash: bytesToHex(invoice.metadataHash),
         invoiceSecret: bytesToHex(invoice.invoiceSecret),
         nonce: bytesToHex(invoice.nonce),
+        merchantPayoutKey: addresses.shieldedCoinPublicKey,
+        merchantEncryptionPublicKey: addresses.shieldedEncryptionPublicKey,
         label: label || undefined,
         createdAt: Date.now(),
       });
@@ -123,18 +168,22 @@ export default function CreateInvoicePage() {
           />
         </Field>
 
-        <Field label="Token color (hex, 32 bytes)">
-          <div className="flex gap-2">
-            <input
-              value={tokenColor}
-              onChange={(e) => setTokenColor(e.target.value)}
-              className="input-field w-full rounded-lg px-3 py-2 font-mono text-xs"
-              required
-            />
-            <button type="button" onClick={() => setTokenColor(randomHex32())} className="btn-ghost shrink-0 rounded-lg px-3 py-2 text-xs">
-              Randomize
-            </button>
-          </div>
+        <Field label="Settlement token">
+          <select
+            value={tokenColor}
+            onChange={(e) => setTokenColor(e.target.value)}
+            disabled={loadingTokens || walletTokens.length === 0}
+            className="input-field w-full rounded-lg px-3 py-2 text-sm"
+            required
+          >
+            {loadingTokens && <option value="">Reading wallet balances…</option>}
+            {!loadingTokens && walletTokens.length === 0 && <option value="">No shielded balances found</option>}
+            {walletTokens.map((token) => (
+              <option key={token.type} value={token.encoded}>
+                {token.type.slice(0, 18)}{token.type.length > 18 ? "…" : ""} — {token.balance.toString()} available
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field label="Expires in (days)">

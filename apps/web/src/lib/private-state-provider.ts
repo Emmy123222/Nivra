@@ -71,8 +71,25 @@ export const browserPrivateStateProvider = <PSI extends PrivateStateId, PS = unk
     return contractAddress;
   };
 
-  const encode = <T>(value: T): string => JSON.stringify(value);
-  const decode = <T>(value: string): T => JSON.parse(value) as T;
+  // JSON does not preserve Uint8Array and throws on bigint. Both occur in real
+  // Compact private state after settlement, so use tagged values rather than
+  // silently reloading byte arrays as plain objects after a page refresh.
+  const encode = <T>(value: T): string =>
+    JSON.stringify(value, (_key, current: unknown) => {
+      if (typeof current === "bigint") return { __nivraType: "bigint", value: current.toString() };
+      if (current instanceof Uint8Array) {
+        return { __nivraType: "bytes", value: Array.from(current) };
+      }
+      return current;
+    });
+  const decode = <T>(value: string): T =>
+    JSON.parse(value, (_key, current: unknown) => {
+      if (!current || typeof current !== "object" || !("__nivraType" in current)) return current;
+      const tagged = current as { __nivraType: string; value: unknown };
+      if (tagged.__nivraType === "bigint" && typeof tagged.value === "string") return BigInt(tagged.value);
+      if (tagged.__nivraType === "bytes" && Array.isArray(tagged.value)) return new Uint8Array(tagged.value);
+      return current;
+    }) as T;
 
   return {
     setContractAddress(address: ContractAddress): void {

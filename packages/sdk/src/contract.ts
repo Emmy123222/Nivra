@@ -28,15 +28,27 @@
 // claimed as working end-to-end.
 
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
-import { deployContract, findDeployedContract } from "@midnight-ntwrk/midnight-js/contracts";
+import {
+  deployContract,
+  findDeployedContract,
+  withContractScopedTransaction,
+  type TransactionContext,
+} from "@midnight-ntwrk/midnight-js/contracts";
+import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { InvoiceRegistry, witnesses, type NivraPrivateState } from "@nivra/contracts";
+import { createNivraPrivateState } from "@nivra/contracts";
 import {
   InvoiceRegistryPrivateStateId,
+  InvoiceRegistryPayerPrivateStateId,
+  type InvoiceRegistryPrivateStateIds,
   type DeployedInvoiceRegistryContract,
+  type InvoiceRegistryContractType,
   type InvoiceRegistryProviders,
 } from "./common-types.js";
 import { computeReceiptCommitment } from "./commitments.js";
 import { bytesToHex } from "./encoding.js";
+import { hexToBytes } from "./encoding.js";
+import type { PaymentLinkPayload } from "./payment-link.js";
 
 /**
  * Binds the compiled InvoiceRegistry contract to its real witness
@@ -68,13 +80,75 @@ export const joinInvoiceRegistry = async (
   zkConfigPath: string,
   contractAddress: string,
   privateState: NivraPrivateState,
+  privateStateId: InvoiceRegistryPrivateStateIds = InvoiceRegistryPrivateStateId,
 ): Promise<DeployedInvoiceRegistryContract> =>
   findDeployedContract(providers, {
     contractAddress,
     compiledContract: compileInvoiceRegistry(zkConfigPath),
-    privateStateId: InvoiceRegistryPrivateStateId,
+    privateStateId,
     initialPrivateState: privateState,
   });
+
+/**
+ * Completes checkout atomically: the wallet balances the contract-created
+ * receive, and the same contract call routes that transient shielded coin to
+ * the payout key committed when the merchant created the invoice.
+ */
+export const settleInvoiceFromPaymentLink = async (
+  providers: InvoiceRegistryProviders,
+  zkConfigPath: string,
+  payload: PaymentLinkPayload,
+  payerReceiptSecret: Uint8Array,
+) => {
+  if (!payload.merchantPayoutKey || !payload.merchantEncryptionPublicKey) {
+    throw new Error("This is an older payment link without a merchant payout key. Ask the merchant for a new link.");
+  }
+
+  const amount = BigInt(payload.amount);
+  const tokenColor = hexToBytes(payload.tokenColor);
+  const privateState: NivraPrivateState = {
+    ...createNivraPrivateState(
+      new Uint8Array(32),
+      new Uint8Array(32),
+      encodeCoinPublicKey(payload.merchantPayoutKey),
+    ),
+    payerReceiptSecret,
+    incomingPaymentCoin: {
+      nonce: crypto.getRandomValues(new Uint8Array(32)),
+      color: tokenColor,
+      value: amount,
+    },
+  };
+  const deployed = await joinInvoiceRegistry(
+    providers,
+    zkConfigPath,
+    payload.contractAddress,
+    privateState,
+    InvoiceRegistryPayerPrivateStateId,
+  );
+
+  return withContractScopedTransaction<InvoiceRegistryContractType>(
+    providers,
+    async (tx) => {
+      await deployed.callTx.settleInvoice(
+        tx as unknown as TransactionContext<InvoiceRegistryContractType, "settleInvoice">,
+        hexToBytes(payload.merchantCommitment),
+        amount,
+        tokenColor,
+        BigInt(payload.expiry),
+        hexToBytes(payload.metadataHash),
+        hexToBytes(payload.invoiceSecret),
+        hexToBytes(payload.nonce),
+      );
+    },
+    {
+      scopeName: "nivra-settle-invoice",
+      additionalCoinEncPublicKeyMappings: new Map([
+        [payload.merchantPayoutKey, payload.merchantEncryptionPublicKey],
+      ]),
+    },
+  );
+};
 
 /** Reads the current public ledger state of a deployed InvoiceRegistry, or null if nothing is deployed there. */
 export const getInvoiceRegistryLedger = async (

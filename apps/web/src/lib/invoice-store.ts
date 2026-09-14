@@ -56,6 +56,15 @@ export const setStoredContractAddress = (address: string): void => {
   window.localStorage.setItem(CONTRACT_KEY, address);
 };
 
+/** Clears this browser's demo workspace so an incompatible old deployment can be replaced. */
+export const resetStoredWorkspace = (): void => {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(CREDENTIAL_KEY);
+  window.localStorage.removeItem(INVOICES_KEY);
+  window.localStorage.removeItem(CONTRACT_KEY);
+  window.localStorage.removeItem("nivra:demo-private-state-provider:v1");
+};
+
 export type StoredInvoice = {
   readonly commitment: string; // hex
   readonly amount: string; // decimal string
@@ -64,6 +73,8 @@ export type StoredInvoice = {
   readonly metadataHash: string; // hex
   readonly invoiceSecret: string; // hex
   readonly nonce: string; // hex
+  readonly merchantPayoutKey?: string;
+  readonly merchantEncryptionPublicKey?: string;
   readonly label?: string; // off-chain-only human note, never sent anywhere
   readonly createdAt: number;
 };

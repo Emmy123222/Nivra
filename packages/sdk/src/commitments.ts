@@ -65,6 +65,10 @@ export type ShieldedCoinLike = {
 export const computeCoinCommitment = (coin: ShieldedCoinLike): Uint8Array =>
   hashVector([domainTag("nivra:coin:v1"), coin.nonce, coin.color, uintToBytes32LE(coin.value, 16)]);
 
+/** Mirrors the payout-key commitment stored by createInvoice. */
+export const computePayoutKeyCommitment = (encodedPayoutKey: Uint8Array): Uint8Array =>
+  hashVector([domainTag("nivra:payout:v1"), encodedPayoutKey]);
+
 /** Mirrors the inline receipt commitment written by settleInvoice into the `receipts` ledger map. */
 export const computeReceiptCommitment = (invoiceCommitment: Uint8Array, payerReceiptSecret: Uint8Array): Uint8Array =>
   persistentHash(new CompactTypeVector(2, new CompactTypeBytes(32)), [invoiceCommitment, payerReceiptSecret]);

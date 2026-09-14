@@ -38,7 +38,7 @@ explicit requirement that state correctness never depends on the UI.
 | From | Event | To | Guard |
 |---|---|---|---|
 | (none) | `createInvoice` | `ACTIVE` | commitment not already present in `invoices` |
-| `ACTIVE` | `settleInvoice` | `PAID` | commitment exists, `blockTimeLt(expiry)`, real `receiveShielded` of matching value/color succeeds |
+| `ACTIVE` | `settleInvoice` | `PAID` | commitment exists, `blockTimeLt(expiry)`, real `receiveShielded` of matching value/color succeeds, and the transient coin is sent to the committed merchant payout key |
 | `ACTIVE` | `cancelInvoice` | `CANCELLED` | `merchantSecret` proof matches stored `merchantCommitment` |
 | `ACTIVE` | `markExpired` | `EXPIRED` | `blockTimeGte(expiry)` (permissionless — anyone may trigger this once it's true) |
 | `PAID`/`CANCELLED`/`EXPIRED` | any | (rejected) | terminal-state guard fails |

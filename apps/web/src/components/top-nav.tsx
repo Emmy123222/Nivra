@@ -5,10 +5,12 @@ import { usePathname } from "next/navigation";
 import { useWallet } from "@/lib/wallet-context";
 import { LogoMark } from "@/components/logo";
 import { LACE_WALLET_URL } from "@/lib/wallet-links";
+import { resetStoredWorkspace } from "@/lib/invoice-store";
 
 export function TopNav() {
   const pathname = usePathname();
   const { status, connecting, error, walletAvailable, connect, dismissError } = useWallet();
+  const walletMissing = error?.startsWith("No Midnight wallet found") ?? false;
 
   return (
     <header className="glass sticky top-0 z-50 border-x-0 border-t-0">
@@ -54,7 +56,20 @@ export function TopNav() {
         <div role="alert" className="absolute right-5 top-[82px] z-50 w-[min(390px,calc(100vw-2.5rem))] rounded-2xl border border-[rgba(245,203,118,.22)] bg-[#171713] p-4 shadow-2xl sm:right-8">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--warning-bg)] text-[var(--warning)]">!</span>
-            <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-[var(--text-primary)]">Wallet extension not detected</p><p className="mt-1 text-[11px] leading-5 text-[var(--text-muted)]">Install Lace for Midnight, unlock it, then reload this page.</p><a href={LACE_WALLET_URL} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-[11px] font-semibold text-[var(--accent)] hover:underline">Open wallet download ↗</a></div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-[var(--text-primary)]">{walletMissing ? "Wallet extension not detected" : "Connection needs attention"}</p>
+              <p className="mt-1 break-words text-[11px] leading-5 text-[var(--text-muted)]">{error}</p>
+              <div className="mt-2 flex flex-wrap gap-3">
+                {walletMissing ? (
+                  <a href={LACE_WALLET_URL} target="_blank" rel="noreferrer" className="text-[11px] font-semibold text-[var(--accent)] hover:underline">Open wallet download ↗</a>
+                ) : (
+                  <button type="button" onClick={() => void connect()} className="text-[11px] font-semibold text-[var(--accent)] hover:underline">Retry connection</button>
+                )}
+                {!walletMissing && (
+                  <button type="button" onClick={() => { resetStoredWorkspace(); window.location.reload(); }} className="text-[11px] text-[var(--warning)] hover:underline">Reset local workspace</button>
+                )}
+              </div>
+            </div>
             <button type="button" onClick={dismissError} aria-label="Dismiss wallet message" className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">×</button>
           </div>
         </div>

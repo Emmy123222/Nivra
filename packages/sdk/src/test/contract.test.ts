@@ -271,7 +271,7 @@ describe("verifyInvoicePaymentLink", () => {
       inv.nonce,
     );
 
-    const payload = buildPaymentLinkPayload(contractAddress, merchantCommitment, inv);
+    const payload = buildPaymentLinkPayload(contractAddress, merchantCommitment, inv, "0".repeat(64), "0".repeat(64));
     const result = await verifyInvoicePaymentLink(fakeProviders(contractAddress, context), payload);
     expect(result.onChain).toBe(true);
   });
@@ -292,9 +292,31 @@ describe("verifyInvoicePaymentLink", () => {
       inv.nonce,
     );
 
-    const payload = buildPaymentLinkPayload(contractAddress, merchantCommitment, inv);
+    const payload = buildPaymentLinkPayload(contractAddress, merchantCommitment, inv, "0".repeat(64), "0".repeat(64));
     const tampered = { ...payload, amount: (BigInt(payload.amount) + 1n).toString() };
     const result = await verifyInvoicePaymentLink(fakeProviders(contractAddress, context), tampered);
+    expect(result.onChain).toBe(false);
+  });
+
+  it("flags a link whose merchant payout key was redirected", async () => {
+    const merchantSecret = randomBytes(32);
+    const merchantNonce = randomBytes(32);
+    const { contract, contractAddress, circuitContext } = setUpContract(merchantSecret, merchantNonce);
+    const inv = sampleInvoice();
+    const merchantCommitment = computeMerchantCommitment(merchantSecret, merchantNonce);
+    const { context } = contract.impureCircuits.createInvoice(
+      circuitContext,
+      inv.amount,
+      inv.tokenColor,
+      inv.expiry,
+      inv.metadataHash,
+      inv.invoiceSecret,
+      inv.nonce,
+    );
+
+    const payload = buildPaymentLinkPayload(contractAddress, merchantCommitment, inv, "0".repeat(64), "0".repeat(64));
+    const redirected = { ...payload, merchantPayoutKey: "11".repeat(32) };
+    const result = await verifyInvoicePaymentLink(fakeProviders(contractAddress, context), redirected);
     expect(result.onChain).toBe(false);
   });
 });

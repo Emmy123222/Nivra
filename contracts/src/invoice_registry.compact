@@ -26,6 +26,10 @@ export struct InvoiceRecord {
   // unrelated coin the contract happens to hold, or at the same coin twice across
   // different invoices. See docs/INVARIANTS.md, INVARIANT 8.
   paidCoinCommitment: Bytes<32>;
+  // The merchant's shielded payout key is committed when the invoice is created.
+  // Checkout reveals the key only to the payer and proves it matches this value,
+  // preventing a modified link from redirecting settlement.
+  payoutKeyCommitment: Bytes<32>;
   claimed: Boolean;
 }
 
@@ -60,6 +64,7 @@ circuit invoiceCommitmentOf(
 
 witness localMerchantSecret(): Bytes<32>;
 witness localMerchantNonce(): Bytes<32>;
+witness merchantPayoutKey(): ZswapCoinPublicKey;
 
 export circuit createInvoice(
   amount: Uint<64>,
@@ -71,6 +76,10 @@ export circuit createInvoice(
 ): Bytes<32> {
   assert(amount > 0, "Amount must be positive");
   const merchantCommitment = disclose(merchantCommitmentOf(localMerchantSecret(), localMerchantNonce()));
+  const payoutKeyCommitment = disclose(persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "nivra:payout:v1"),
+    merchantPayoutKey().bytes
+  ]));
   const commitment = disclose(invoiceCommitmentOf(
     merchantCommitment, amount, tokenColor, expiry, metadataHash, invoiceSecret, nonce
   ));
@@ -80,6 +89,7 @@ export circuit createInvoice(
     merchantCommitment: merchantCommitment,
     expiry: disclose(expiry),
     paidCoinCommitment: default<Bytes<32>>,
+    payoutKeyCommitment: payoutKeyCommitment,
     claimed: false
   });
   return commitment;
@@ -106,6 +116,7 @@ export circuit cancelInvoice(
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
     paidCoinCommitment: record.paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
     claimed: record.claimed
   });
 }
@@ -144,18 +155,36 @@ export circuit settleInvoice(
     coin.value as Field as Bytes<32>
   ]));
 
+  // Route the freshly received contract output to the merchant in the same
+  // transaction. mt_index 0 marks a transient coin (an output immediately
+  // consumed by this circuit), so no later index discovery or custodial claim
+  // step is needed.
+  const payoutKey = merchantPayoutKey();
+  const suppliedPayoutKeyCommitment = disclose(persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "nivra:payout:v1"),
+    payoutKey.bytes
+  ]));
+  assert(suppliedPayoutKeyCommitment == record.payoutKeyCommitment, "Payout key does not match this invoice");
+  const transientCoin = QualifiedShieldedCoinInfo {
+    nonce: coin.nonce,
+    color: coin.color,
+    value: coin.value,
+    mt_index: 0
+  };
+  sendShielded(disclose(transientCoin), left<ZswapCoinPublicKey, ContractAddress>(disclose(payoutKey)), disclose(amount as Uint<128>));
+
   invoices.insert(commitment, InvoiceRecord {
     state: InvoiceState.PAID,
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
     paidCoinCommitment: paidCoinCommitment,
-    claimed: false
+    payoutKeyCommitment: record.payoutKeyCommitment,
+    claimed: true
   });
   receipts.insert(commitment, disclose(persistentHash<Vector<2, Bytes<32>>>([commitment, localPayerReceiptSecret()])));
 }
 
 witness heldCoin(): QualifiedShieldedCoinInfo;
-witness merchantPayoutKey(): ZswapCoinPublicKey;
 
 export circuit claimSettlement(
   amount: Uint<64>,
@@ -191,6 +220,7 @@ export circuit claimSettlement(
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
     paidCoinCommitment: record.paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
     claimed: true
   });
 }
@@ -216,6 +246,7 @@ export circuit markExpired(
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
     paidCoinCommitment: record.paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
     claimed: record.claimed
   });
 }

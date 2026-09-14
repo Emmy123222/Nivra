@@ -48,7 +48,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * honest outcome in any environment without a real Midnight wallet extension
  * installed, not something to work around with a fallback.
  */
-export const connectWallet = async (networkId: string, timeoutMs = 3_000): Promise<ConnectedAPI> => {
+export const connectWallet = async (networkId: string, timeoutMs = 20_000): Promise<ConnectedAPI> => {
   const deadline = Date.now() + timeoutMs;
   let wallet: InitialAPI | undefined;
   while (Date.now() < deadline) {

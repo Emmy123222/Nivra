@@ -25,10 +25,15 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
   // (meaning "not checked yet") on both the server and the initial client render, then
   // resolves client-side — avoiding a hydration mismatch from reading it during render.
   const [invoice, setInvoice] = useState<StoredInvoice | null | undefined>(undefined);
+  const [isExpired, setIsExpired] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void Promise.resolve().then(() => {
-      if (!cancelled) setInvoice(getStoredInvoice(commitment) ?? null);
+      if (!cancelled) {
+        const stored = getStoredInvoice(commitment) ?? null;
+        setInvoice(stored);
+        setIsExpired(stored ? Date.now() / 1000 >= Number(stored.expiry) : false);
+      }
     });
     return () => {
       cancelled = true;
@@ -38,6 +43,7 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
   const [receiptRegistered, setReceiptRegistered] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -69,6 +75,7 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
     if (!contractAddress) return null;
     const { merchantSecret, merchantNonce } = getOrCreateMerchantCredential();
     const merchantCommitment = computeMerchantCommitment(merchantSecret, merchantNonce);
+    if (!invoice.merchantPayoutKey || !invoice.merchantEncryptionPublicKey) return null;
     const payload = buildPaymentLinkPayload(contractAddress, merchantCommitment, {
       amount: BigInt(invoice.amount),
       tokenColor: hexToBytes(invoice.tokenColor),
@@ -76,7 +83,7 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
       metadataHash: hexToBytes(invoice.metadataHash),
       invoiceSecret: hexToBytes(invoice.invoiceSecret),
       nonce: hexToBytes(invoice.nonce),
-    });
+    }, invoice.merchantPayoutKey, invoice.merchantEncryptionPublicKey);
     return buildPaymentLinkUrl(`${window.location.origin}/checkout`, payload);
   }, [invoice]);
 
@@ -99,6 +106,30 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
     try {
       await contract.callTx.cancelInvoice(
         BigInt(invoice.amount),
+        hexToBytes(invoice.tokenColor),
+        BigInt(invoice.expiry),
+        hexToBytes(invoice.metadataHash),
+        hexToBytes(invoice.invoiceSecret),
+        hexToBytes(invoice.nonce),
+      );
+      await refresh();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markExpired = async () => {
+    if (!contract || !invoice) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const { merchantSecret, merchantNonce } = getOrCreateMerchantCredential();
+      const merchantCommitment = computeMerchantCommitment(merchantSecret, merchantNonce);
+      await contract.callTx.markExpired(
+        BigInt(invoice.amount),
+        merchantCommitment,
         hexToBytes(invoice.tokenColor),
         BigInt(invoice.expiry),
         hexToBytes(invoice.metadataHash),
@@ -164,7 +195,7 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
       </dl>
 
       {status === "connected" && state === InvoiceRegistry.InvoiceState.ACTIVE && (
-        <div className="fade-up mt-4">
+        <div className="fade-up mt-4 flex flex-wrap gap-3">
           <button
             type="button"
             onClick={() => void cancel()}
@@ -173,6 +204,11 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
           >
             {busy ? "Cancelling…" : "Cancel invoice"}
           </button>
+          {isExpired && (
+            <button type="button" onClick={() => void markExpired()} disabled={busy} className="btn-ghost rounded-full px-5 py-2 text-sm font-medium disabled:opacity-50">
+              {busy ? "Updating…" : "Mark expired"}
+            </button>
+          )}
         </div>
       )}
       {actionError && (
@@ -180,11 +216,14 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
       )}
 
       {state === InvoiceRegistry.InvoiceState.PAID && (
-        <p className="fade-up mt-4 rounded-lg bg-[var(--info-bg)] px-4 py-3 text-sm text-[var(--info)]">
-          Paid. Claiming the settled funds to your payout key isn&rsquo;t wired up in this dashboard yet — see{" "}
-          <code className="rounded bg-black/20 px-1 py-0.5">docs/BUILD_STATUS.md</code>. The contract&rsquo;s{" "}
-          <code className="rounded bg-black/20 px-1 py-0.5">claimSettlement</code> circuit itself is implemented and
-          tested.
+        <p className="fade-up mt-4 rounded-lg bg-[var(--success-bg)] px-4 py-3 text-sm text-[var(--success)]">
+          Paid and routed to your shielded wallet atomically. No separate withdrawal or claim is required.
+        </p>
+      )}
+
+      {!invoice.merchantPayoutKey && (
+        <p className="mt-4 rounded-lg bg-[var(--warning-bg)] px-4 py-3 text-sm text-[var(--warning)]">
+          This invoice predates atomic payout links. Create a new invoice to generate a payable link.
         </p>
       )}
 
@@ -194,6 +233,13 @@ export function InvoiceDetailsClient({ commitment }: { commitment: string }) {
           <p className="mt-2 break-all rounded-lg bg-[var(--bg-elevated)] px-3 py-2 font-mono text-xs text-[var(--text-secondary)]">
             {paymentUrl}
           </p>
+          <button
+            type="button"
+            onClick={() => void navigator.clipboard.writeText(paymentUrl).then(() => setCopied(true))}
+            className="btn-primary mt-4 rounded-full px-5 py-2 text-xs font-semibold"
+          >
+            {copied ? "Copied" : "Copy payment link"}
+          </button>
           {qrDataUrl && (
             <div className="mt-4 inline-block rounded-xl bg-white p-3">
               <Image src={qrDataUrl} alt="Payment link QR code" width={180} height={180} unoptimized />

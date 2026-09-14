@@ -29,13 +29,16 @@ export type NivraPrivateState = {
 export const createNivraPrivateState = (
   merchantSecret: Uint8Array,
   merchantNonce: Uint8Array,
+  merchantPayoutKey?: Uint8Array,
 ): NivraPrivateState => ({
   merchantSecret,
   merchantNonce,
   payerReceiptSecret: new Uint8Array(32),
   incomingPaymentCoin: undefined,
   heldCoin: undefined,
-  merchantPayoutKey: undefined,
+  // A zero key keeps pure simulator/commitment tests deterministic; browser
+  // merchant and checkout flows always pass the wallet's encoded real key.
+  merchantPayoutKey: merchantPayoutKey ?? new Uint8Array(32),
 });
 
 const notConfigured = (witnessName: string) => (): never => {

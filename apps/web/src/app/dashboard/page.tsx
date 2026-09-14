@@ -11,6 +11,7 @@ import { LACE_WALLET_URL } from "@/lib/wallet-links";
 
 type Row = { invoice: StoredInvoice; state: InvoiceRegistry.InvoiceState | null };
 type PreviewRow = { id: string; client: string; amount: string; date: string; status: "Paid" | "Active" | "Draft" };
+type InvoiceFilter = "all" | "active" | "paid";
 
 const PREVIEW_ROWS: PreviewRow[] = [
   { id: "NV-1042", client: "Northstar Studio", amount: "12,400", date: "Sep 14", status: "Paid" },
@@ -32,6 +33,7 @@ export default function DashboardPage() {
   } = useWallet();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<InvoiceFilter>("all");
   const connected = status === "connected";
 
   const refresh = useCallback(async () => {
@@ -75,6 +77,11 @@ export default function DashboardPage() {
     const rate = current.length ? `${Math.round((paid / current.length) * 100)}%` : "—";
     return { volume: formatAmount(volume), paid: String(paid), active: String(active), rate };
   }, [connected, rows]);
+  const filteredRows = useMemo(() => {
+    if (!rows || filter === "all") return rows;
+    const target = filter === "active" ? InvoiceRegistry.InvoiceState.ACTIVE : InvoiceRegistry.InvoiceState.PAID;
+    return rows.filter((row) => row.state === target);
+  }, [rows, filter]);
 
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-5 py-8 sm:px-8 sm:py-10">
@@ -134,16 +141,25 @@ export default function DashboardPage() {
         <div className="card fade-up overflow-hidden rounded-[1.35rem]" style={{ animationDelay: "120ms" }}>
           <div className="flex flex-col gap-4 border-b border-[var(--border)] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div><h2 className="text-sm font-semibold">Recent invoices</h2><p className="mt-1 text-[11px] text-[var(--text-muted)]">{connected ? "Private records stored in this browser" : "Preview of your future workspace"}</p></div>
-            <div className="flex items-center gap-2"><button type="button" className="btn-ghost rounded-full px-3 py-2 text-[10px] font-medium"><FilterIcon /> Filter</button>{connected && <Link href="/dashboard/create" className="text-[11px] font-semibold text-[var(--accent)] hover:underline">View all</Link>}</div>
+            <div className="flex items-center gap-2">
+              <label className="btn-ghost flex items-center gap-1.5 rounded-full px-3 py-2 text-[10px] font-medium">
+                <FilterIcon />
+                <span className="sr-only">Filter invoices</span>
+                <select value={filter} onChange={(event) => setFilter(event.target.value as InvoiceFilter)} className="bg-transparent outline-none">
+                  <option value="all">All</option><option value="active">Active</option><option value="paid">Paid</option>
+                </select>
+              </label>
+              {connected && <button type="button" onClick={() => void refresh()} className="text-[11px] font-semibold text-[var(--accent)] hover:underline">Refresh</button>}
+            </div>
           </div>
           {!connected ? (
-            <PreviewInvoiceTable />
+            <PreviewInvoiceTable filter={filter} />
           ) : rows === null ? (
             <TableMessage message="Loading private records…" />
           ) : rows.length === 0 ? (
             <div className="px-6 py-14 text-center"><span className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-[var(--surface-hover)] text-[var(--text-muted)]"><InvoiceIcon /></span><p className="mt-4 text-sm font-medium">No invoices yet</p><p className="mt-1 text-xs text-[var(--text-muted)]">Create your first private invoice to begin.</p><Link href="/dashboard/create" className="btn-primary mt-5 rounded-full px-5 py-2.5 text-xs font-semibold">Create invoice</Link></div>
           ) : (
-            <ActualInvoiceTable rows={rows} />
+            filteredRows?.length ? <ActualInvoiceTable rows={filteredRows} /> : <TableMessage message={`No ${filter} invoices found.`} />
           )}
         </div>
 
@@ -169,8 +185,10 @@ function StatCard({ label, value, suffix, note, icon, chart }: { label: string; 
   return <article className="card min-h-36 rounded-[1.2rem] p-5"><div className="flex items-center justify-between text-[11px] text-[var(--text-muted)]"><span>{label}</span>{icon && <span className="text-[var(--accent)]">{icon}</span>}</div><div className="mt-5 flex items-end gap-2"><strong className="text-2xl font-medium tracking-[-.04em]">{value}</strong>{suffix && <span className="mb-1 text-[10px] text-[var(--text-muted)]">{suffix}</span>}</div><div className="mt-4 flex items-end justify-between gap-3"><span className="text-[10px] text-[var(--text-muted)]">{note}</span>{chart && <span className="flex h-6 items-end gap-0.5">{chart.map((h, i) => <i key={i} className="w-1 rounded-sm bg-[var(--accent)] opacity-70" style={{ height: `${h}%` }} />)}</span>}</div></article>;
 }
 
-function PreviewInvoiceTable() {
-  return <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left"><TableHead /><tbody className="divide-y divide-[var(--border)]">{PREVIEW_ROWS.map((row) => <tr key={row.id} className="transition-colors hover:bg-[rgba(255,255,255,.025)]"><td className="px-6 py-4 font-mono text-[11px] text-[var(--text-muted)]">{row.id}</td><td className="px-4 py-4 text-xs font-medium">{row.client}</td><td className="px-4 py-4 text-xs">{row.amount} <span className="text-[9px] text-[var(--text-muted)]">tDUST</span></td><td className="px-4 py-4"><PreviewStatus status={row.status} /></td><td className="px-6 py-4 text-right text-[11px] text-[var(--text-muted)]">{row.date}</td></tr>)}</tbody></table></div>;
+function PreviewInvoiceTable({ filter }: { filter: InvoiceFilter }) {
+  const visible = filter === "all" ? PREVIEW_ROWS : PREVIEW_ROWS.filter((row) => row.status.toLowerCase() === filter);
+  if (!visible.length) return <TableMessage message={`No ${filter} preview invoices found.`} />;
+  return <div className="overflow-x-auto"><table className="w-full min-w-[650px] text-left"><TableHead /><tbody className="divide-y divide-[var(--border)]">{visible.map((row) => <tr key={row.id} className="transition-colors hover:bg-[rgba(255,255,255,.025)]"><td className="px-6 py-4 font-mono text-[11px] text-[var(--text-muted)]">{row.id}</td><td className="px-4 py-4 text-xs font-medium">{row.client}</td><td className="px-4 py-4 text-xs">{row.amount} <span className="text-[9px] text-[var(--text-muted)]">tDUST</span></td><td className="px-4 py-4"><PreviewStatus status={row.status} /></td><td className="px-6 py-4 text-right text-[11px] text-[var(--text-muted)]">{row.date}</td></tr>)}</tbody></table></div>;
 }
 
 function ActualInvoiceTable({ rows }: { rows: Row[] }) {

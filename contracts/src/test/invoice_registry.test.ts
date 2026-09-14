@@ -127,6 +127,7 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
 
     const ledger = sim.getLedger();
     expect(ledger.invoices.lookup(commitment).state).toEqual(InvoiceState.PAID);
+    expect(ledger.invoices.lookup(commitment).claimed).toBe(true);
     expect(ledger.receipts.member(commitment)).toBe(true);
   });
 
@@ -183,9 +184,25 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
       sim.settleInvoice(randomBytes(32), inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
     ).toThrow("No such invoice");
   });
+
+  it("rejects a checkout link that redirects the committed payout key", () => {
+    const sim = new InvoiceRegistrySimulator(randomBytes(32), randomBytes(32));
+    const inv = sampleInvoice();
+    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+    sim.setIncomingPaymentCoin({ nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount }, randomBytes(32));
+    sim.setHeldCoin(
+      { nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount, mt_index: 0n },
+      randomBytes(32),
+    );
+
+    expect(() =>
+      sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
+    ).toThrow("Payout key does not match this invoice");
+  });
 });
 
-describe("InvoiceRegistry — CLAIM SETTLEMENT", () => {
+describe("InvoiceRegistry — ATOMIC PAYOUT", () => {
   const settle = (
     sim: InvoiceRegistrySimulator,
     merchantCommitment: Uint8Array,
@@ -196,7 +213,7 @@ describe("InvoiceRegistry — CLAIM SETTLEMENT", () => {
     sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
   };
 
-  it("lets the merchant claim the exact coin that settled their invoice", () => {
+  it("marks the shielded settlement claimed in the payment transaction", () => {
     const merchantSecret = randomBytes(32);
     const merchantNonce = randomBytes(32);
     const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
@@ -206,35 +223,10 @@ describe("InvoiceRegistry — CLAIM SETTLEMENT", () => {
     const coinNonce = randomBytes(32);
     settle(sim, merchantCommitment, inv, coinNonce);
 
-    sim.setHeldCoin(
-      { nonce: coinNonce, color: inv.tokenColor, value: inv.amount, mt_index: 0n },
-      randomBytes(32),
-    );
-    sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-
     expect(sim.getLedger().invoices.lookup(commitment).claimed).toBe(true);
   });
 
-  it("rejects claiming with a coin that does not match the one that actually settled the invoice", () => {
-    const merchantSecret = randomBytes(32);
-    const merchantNonce = randomBytes(32);
-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
-    const inv = sampleInvoice();
-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
-    settle(sim, merchantCommitment, inv, randomBytes(32));
-
-    // A different coin, e.g. one the contract holds for a different invoice.
-    sim.setHeldCoin(
-      { nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount, mt_index: 0n },
-      randomBytes(32),
-    );
-    expect(() =>
-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
-    ).toThrow("Offered coin does not match this invoice's settlement");
-  });
-
-  it("rejects a second claim against an already-claimed invoice", () => {
+  it("rejects a separate claim because atomic settlement already paid out", () => {
     const merchantSecret = randomBytes(32);
     const merchantNonce = randomBytes(32);
     const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
@@ -244,8 +236,6 @@ describe("InvoiceRegistry — CLAIM SETTLEMENT", () => {
     const coinNonce = randomBytes(32);
     settle(sim, merchantCommitment, inv, coinNonce);
     sim.setHeldCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
-    sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-
     expect(() =>
       sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
     ).toThrow("Settlement for this invoice has already been claimed");
@@ -381,7 +371,7 @@ describe("InvoiceRegistry — PRIVACY", () => {
     const inv = sampleInvoice();
     const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
     const record = sim.getLedger().invoices.lookup(commitment);
-    // The ledger record's own type (InvoiceRecord = { state, merchantCommitment, expiry })
+    // The ledger record's own schema stores only commitments and lifecycle data.
     // is the real enforcement here — this assertion documents that guarantee in a way
     // that fails loudly if the schema is ever widened to leak more.
     expect(Object.keys(record).sort()).toEqual([
@@ -389,9 +379,9 @@ describe("InvoiceRegistry — PRIVACY", () => {
       "expiry",
       "merchantCommitment",
       "paidCoinCommitment",
+      "payoutKeyCommitment",
       "state",
     ]);
-    // paidCoinCommitment is a hash of the coin, not the coin itself — it's the same
-    // kind of commitment-only disclosure as invoiceCommitment, not a privacy leak.
+    // Both *Commitment fields are hashes rather than the coin or payout key.
   });
 });

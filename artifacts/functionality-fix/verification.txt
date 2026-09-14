@@ -1,0 +1,207 @@
+$ npm test
+
+> nivra@0.1.0 test
+> npm run build && npm run test --workspaces --if-present
+
+
+> nivra@0.1.0 build
+> npm run compact && npm run build --workspace=contracts && npm run build --workspace=@nivra/sdk --if-present
+
+
+> nivra@0.1.0 compact
+> npm run compact --workspace=contracts
+
+
+> @nivra/contracts@0.1.0 compact
+> compact compile src/invoice_registry.compact src/managed/invoice_registry
+
+Compiling 5 circuits:
+
+> @nivra/contracts@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed
+
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+
+> @nivra/contracts@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /home/emmanuel-ogheneovo/nivra/contracts
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/contract/index.js" points to missing source files
+ ✓ src/test/invoice_registry.test.ts (24 tests) 484ms
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  19:40:11
+   Duration  1.19s (transform 278ms, setup 0ms, collect 338ms, tests 484ms, environment 0ms, prepare 94ms)
+
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+ ✓ src/test/commitments.test.ts (4 tests) 108ms
+ ✓ src/test/payment-link.test.ts (6 tests) 46ms
+ ✓ src/test/receipt-link.test.ts (3 tests) 295ms
+ ✓ src/test/contract.test.ts (9 tests) 540ms
+
+ Test Files  4 passed (4)
+      Tests  22 passed (22)
+   Start at  19:40:13
+   Duration  2.45s (transform 555ms, setup 0ms, collect 4.88s, tests 990ms, environment 1ms, prepare 441ms)
+
+root_test_exit=0
+$ npm run build --workspace=apps/web
+
+> web@0.1.0 prebuild
+> node scripts/copy-zk-assets.mjs
+
+Copied ZK assets: /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/keys -> /home/emmanuel-ogheneovo/nivra/apps/web/public/keys, /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /home/emmanuel-ogheneovo/nivra/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.3.5 (Turbopack)
+✓ Running next.config.ts took 105ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 8.0s
+  Running TypeScript ...
+  Finished TypeScript in 4.7s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9)
+  Generating static pages using 7 workers (4/9)
+  Generating static pages using 7 workers (6/9)
+✓ Generating static pages using 7 workers (9/9) in 892ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+web_build_exit=0
+$ npm run build --workspace=apps/web (final)
+
+> web@0.1.0 prebuild
+> node scripts/copy-zk-assets.mjs
+
+Copied ZK assets: /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/keys -> /home/emmanuel-ogheneovo/nivra/apps/web/public/keys, /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /home/emmanuel-ogheneovo/nivra/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.3.5 (Turbopack)
+✓ Running next.config.ts took 87ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 3.4s
+  Running TypeScript ...
+  Finished TypeScript in 4.1s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9)
+  Generating static pages using 7 workers (4/9)
+  Generating static pages using 7 workers (6/9)
+✓ Generating static pages using 7 workers (9/9) in 702ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+final_web_build_exit=0
+
+$ npm run build --workspace=@nivra/sdk (final)
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+sdk_build_exit=0
+$ npm test --workspace=@nivra/sdk (final)
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+ ✓ src/test/commitments.test.ts (5 tests) 264ms
+ ✓ src/test/payment-link.test.ts (6 tests) 29ms
+ ✓ src/test/receipt-link.test.ts (3 tests) 276ms
+ ✓ src/test/contract.test.ts (10 tests) 582ms
+
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+   Start at  19:44:24
+   Duration  2.78s (transform 694ms, setup 0ms, collect 5.99s, tests 1.15s, environment 1ms, prepare 461ms)
+
+sdk_test_exit=0
+$ npm run typecheck --workspace=apps/web
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+web_typecheck_exit=0
+$ npm run lint --workspace=apps/web
+
+> web@0.1.0 lint
+> eslint
+
+web_lint_exit=0
+$ curl smoke routes
+/                            200
+/dashboard                   200
+/dashboard/create            200
+/connect                     200
+/checkout                    200
+/receipt                     200
+smoke_exit=0
+Preparing worktree (detached HEAD cfd4339)
+HEAD is now at cfd4339 Build Nivra privacy-first invoicing platform
+Restored source tree to baseline cfd433915060c397c2bb551d64f738871915b641
+rollback_test_exit=0
+$ npm run typecheck --workspace=apps/web (post-migration UI)
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+post_migration_typecheck_exit=0
+$ npm run lint --workspace=apps/web (post-migration UI)
+
+> web@0.1.0 lint
+> eslint
+
+post_migration_lint_exit=0
+Preparing worktree (detached HEAD cfd4339)
+HEAD is now at cfd4339 Build Nivra privacy-first invoicing platform
+Restored source tree to baseline cfd433915060c397c2bb551d64f738871915b641
+updated_rollback_test_exit=0

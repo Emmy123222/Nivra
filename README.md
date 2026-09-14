@@ -36,10 +36,12 @@ real installed Midnight packages, with the commitment/receipt logic additionally
 cross-checked byte-for-byte against the real compiled contract. The frontend
 (`apps/web`, Next.js 16) implements the full Wave 1 golden-path UI wired to real SDK
 logic — all 6 routes verified error-free in a real headless browser, including
-end-to-end payment-link and receipt-link verification passes and an honest "no wallet
-found" failure path — with real settlement explicitly gated behind a clear message
-rather than faked, since no live network/wallet is reachable in this development
-environment. See `docs/BUILD_STATUS.md` for the authoritative, honest per-component
+payment-link and receipt-link verification and an honest "no wallet found" path.
+Checkout now uses the connected wallet to balance an atomic Zswap settlement: the
+contract receives the exact invoiced coin, routes the transient output to the payout
+key committed by the merchant, records the receipt, and marks the invoice paid in one
+transaction. Live-network execution still requires a compatible wallet and reachable
+prover. See `docs/BUILD_STATUS.md` for the authoritative per-component
 status — nothing there is marked done unless it actually runs, or tested unless it
 has an automated test.
 
@@ -75,6 +77,29 @@ docs/         Architecture, privacy, threat-model, and status documentation
 
 There is no backend in Wave 1 — see `docs/PROTOCOL_ARCHITECTURE.md` for why that's a
 deliberate choice, not an omission.
+
+## Run locally
+
+Prerequisites: Node.js 20+, npm, Compact compiler `0.31.1`, and a Midnight
+DApp Connector-compatible wallet such as Lace.
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+npm ci
+npm test
+npm run build --workspace=apps/web
+npm run dev --workspace=apps/web
+```
+
+Open `http://localhost:3000`, connect the wallet on the network selected by
+`NEXT_PUBLIC_NETWORK_ID`, and create an invoice. The form lists only shielded token
+types with a positive wallet balance; its QR/payment link opens `/checkout`, where a
+second wallet can verify and pay. After finalization, checkout produces a private
+receipt link that `/receipt` verifies against the on-chain receipt commitment.
+
+Nivra first uses the wallet's delegated proving provider and configured indexer. If
+delegated proving is unavailable, it uses the wallet's prover URI and finally
+`NEXT_PUBLIC_PROOF_SERVER_URL` as a fallback.
 
 ## Toolchain
 

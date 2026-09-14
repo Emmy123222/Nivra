@@ -23,12 +23,14 @@ const sampleInvoiceForLink = () => ({
   invoiceSecret: randomBytes(32),
   nonce: randomBytes(32),
 });
+const payoutKey = "11".repeat(32);
+const encryptionKey = "22".repeat(32);
 
 describe("payment links", () => {
   it("round-trips a payload through a full URL", () => {
     const merchantCommitment = computeMerchantCommitment(randomBytes(32), randomBytes(32));
     const invoice = sampleInvoiceForLink();
-    const payload = buildPaymentLinkPayload("0xcontractAddress", merchantCommitment, invoice);
+    const payload = buildPaymentLinkPayload("0xcontractAddress", merchantCommitment, invoice, payoutKey, encryptionKey);
 
     const url = buildPaymentLinkUrl("https://pay.nivra.example/checkout", payload);
     expect(url.startsWith("https://pay.nivra.example/checkout#")).toBe(true);
@@ -39,7 +41,7 @@ describe("payment links", () => {
 
   it("survives decoding from just the fragment token, not only a full URL", () => {
     const merchantCommitment = computeMerchantCommitment(randomBytes(32), randomBytes(32));
-    const payload = buildPaymentLinkPayload("0xaddr", merchantCommitment, sampleInvoiceForLink());
+    const payload = buildPaymentLinkPayload("0xaddr", merchantCommitment, sampleInvoiceForLink(), payoutKey, encryptionKey);
     const url = buildPaymentLinkUrl("https://pay.example/c", payload);
     const token = url.split("#")[1];
     expect(decodePaymentLinkPayload(token)).toEqual(payload);
@@ -48,7 +50,7 @@ describe("payment links", () => {
   it("the recomputed invoice commitment matches what the SDK's own commitment function produces for the same fields", () => {
     const merchantCommitment = computeMerchantCommitment(randomBytes(32), randomBytes(32));
     const invoice = sampleInvoiceForLink();
-    const payload = buildPaymentLinkPayload("0xaddr", merchantCommitment, invoice);
+    const payload = buildPaymentLinkPayload("0xaddr", merchantCommitment, invoice, payoutKey, encryptionKey);
 
     const fromLink = invoiceCommitmentFromPaymentLink(payload);
     const direct = computeInvoiceCommitment({ merchantCommitment, ...invoice });
@@ -58,7 +60,7 @@ describe("payment links", () => {
   it("a tampered payload produces a different commitment (the on-chain membership check would reject it)", () => {
     const merchantCommitment = computeMerchantCommitment(randomBytes(32), randomBytes(32));
     const invoice = sampleInvoiceForLink();
-    const payload = buildPaymentLinkPayload("0xaddr", merchantCommitment, invoice);
+    const payload = buildPaymentLinkPayload("0xaddr", merchantCommitment, invoice, payoutKey, encryptionKey);
     const genuineCommitment = invoiceCommitmentFromPaymentLink(payload);
 
     const tampered = { ...payload, amount: (BigInt(payload.amount) + 1n).toString() };

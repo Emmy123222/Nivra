@@ -30,8 +30,8 @@ Enforced by: `receipts[invoiceCommitment]` is written only inside `settleInvoice
 at the same point `state` is flipped to `PAID`; no other circuit writes to `receipts`.
 
 ### INVARIANT 6 — Private invoice metadata does not appear in public ledger state.
-Enforced by: the ledger schema itself — `InvoiceRecord` contains only `state`,
-`merchantCommitment`, and `expiry`. `amount`, `tokenColor`, `metadataHash`,
+Enforced by: the ledger schema itself — `InvoiceRecord` contains lifecycle data and
+hash commitments only. `amount`, `tokenColor`, `metadataHash`,
 `invoiceSecret`, and `nonce` are witness inputs used only to recompute and check the
 commitment hash; Compact's `disclose()` requirement makes any accidental leak of these
 into ledger state a compile-time-visible event (an explicit `disclose()` call would
@@ -43,19 +43,13 @@ shielded pool's own conservation-of-value accounting (spent-coin nullifiers, Mer
 membership) — this contract does not implement value accounting itself, it relies on
 and defers to Midnight's own ledger for that guarantee.
 
-### INVARIANT 8 — Merchant funds can be claimed at most once per settled invoice, and
-only the coin that actually settled that specific invoice.
-(Added beyond the prompt's list because `claimSettlement` introduces its own
-double-spend surface — found and fixed during implementation, not anticipated in the
-original design.) `InvoiceRecord` carries `paidCoinCommitment` (written by
-`settleInvoice`, a domain-separated hash of the received coin's `nonce`/`color`/
-`value`) and a `claimed: Boolean` flag. `claimSettlement` asserts `!record.claimed`,
-recomputes the same hash from the `heldCoin` witness, asserts it equals
-`record.paidCoinCommitment`, and only then sets `claimed = true`. Without this,
-a merchant with multiple paid invoices could point `claimSettlement` at any coin the
-contract holds, claiming the same underlying coin against more than one invoice, or
-double-claiming the same invoice. Tested in
-`contracts/src/test/invoice_registry.test.ts` ("CLAIM SETTLEMENT" suite).
+### INVARIANT 8 — Settlement reaches only the payout key committed at creation.
+`createInvoice` stores a domain-separated `payoutKeyCommitment`. `settleInvoice`
+recomputes it from the key in the private payment link and rejects any mismatch,
+then receives and spends the same coin as a transient output in one transaction.
+The record is written with `claimed = true`; there is no custodial balance or later
+index-discovery step. A separate `claimSettlement` call is rejected for these atomic
+settlements. Tested by the "ATOMIC PAYOUT" suite and the redirected-key test.
 
 ### INVARIANT 9 — An invoice cannot be marked EXPIRED before its deadline.
 Enforced by: `markExpired`'s `assert(blockTimeGte(expiry))`, which reads the chain's

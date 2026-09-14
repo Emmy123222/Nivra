@@ -8,6 +8,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
+import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { createNivraPrivateState, type NivraPrivateState, InvoiceRegistry } from "@nivra/contracts";
 import {
   deployInvoiceRegistry,
@@ -59,9 +60,9 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
       const available = listAvailableWallets().length > 0;
       setWalletAvailable(available);
       checks += 1;
-      if (available || checks >= 12) window.clearInterval(timer);
+      if (available || checks >= 40) window.clearInterval(timer);
     };
-    const timer = window.setInterval(detect, 250);
+    const timer = window.setInterval(detect, 500);
     detect();
     return () => window.clearInterval(timer);
   }, []);
@@ -77,6 +78,26 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
       setConnectedApi(api);
       setProviders(built);
       setStatus("connected");
+
+      // Restore the merchant's registry immediately after a reload. Previously
+      // the dashboard stayed in a half-connected state until another action
+      // happened to call ensureContract().
+      const existingAddress = getStoredContractAddress();
+      if (existingAddress) {
+        const { merchantSecret, merchantNonce } = getOrCreateMerchantCredential();
+        const addresses = await api.getShieldedAddresses();
+        const restored = await joinInvoiceRegistry(
+          built,
+          zkConfigPath(),
+          existingAddress,
+          createNivraPrivateState(
+            merchantSecret,
+            merchantNonce,
+            encodeCoinPublicKey(addresses.shieldedCoinPublicKey),
+          ),
+        );
+        setContract(restored);
+      }
     } catch (e) {
       setStatus("error");
       setError(e instanceof Error ? e.message : String(e));
@@ -87,12 +108,17 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
 
   const ensureContract = useCallback(async (): Promise<DeployedInvoiceRegistryContract> => {
     if (contract) return contract;
-    if (!providers) throw new Error("Connect a wallet before creating or opening an InvoiceRegistry contract.");
+    if (!providers || !connectedApi) throw new Error("Connect a wallet before creating or opening an InvoiceRegistry contract.");
 
     setDeployingContract(true);
     try {
       const { merchantSecret, merchantNonce } = getOrCreateMerchantCredential();
-      const privateState: NivraPrivateState = createNivraPrivateState(merchantSecret, merchantNonce);
+      const addresses = await connectedApi.getShieldedAddresses();
+      const privateState: NivraPrivateState = createNivraPrivateState(
+        merchantSecret,
+        merchantNonce,
+        encodeCoinPublicKey(addresses.shieldedCoinPublicKey),
+      );
       const existingAddress = getStoredContractAddress();
 
       const deployed = existingAddress
@@ -107,7 +133,7 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
     } finally {
       setDeployingContract(false);
     }
-  }, [contract, providers]);
+  }, [contract, providers, connectedApi]);
 
   const getLedger = useCallback(async (): Promise<InvoiceRegistry.Ledger | null> => {
     const address = getStoredContractAddress();

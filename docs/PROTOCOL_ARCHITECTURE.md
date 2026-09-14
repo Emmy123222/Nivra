@@ -32,6 +32,8 @@
 - Enforces merchant authorization via hash-preimage proof, never by comparing a
   caller-supplied commitment to itself.
 - Ties settlement to a real Zswap shielded value transfer (`receiveShielded`).
+- Atomically routes the transient settlement coin to the merchant payout key whose
+  commitment was fixed when the invoice was created (`sendShielded`).
 - Enforces expiry via `blockTimeLt/Gte`, never a caller-supplied timestamp.
 - Registers receipt commitments at the moment of real settlement.
 - This is the sole source of truth for "is this invoice PAID." Nothing else in the
@@ -44,7 +46,7 @@
   provides, per Compact's witness model — and never appear in any transaction data
   that isn't explicitly `disclose()`d.
 - The full invoice preimage plus a human-readable description of what's being paid
-  for is what actually travels inside a payment link/QR code (encrypted — see
+  for is what actually travels inside a fragment-only bearer payment link/QR code (encoded — see
   `docs/PAYMENT_LINKS` section below and Phase 20 handling in `WAVE1_SCOPE.md`).
 
 ### Backend

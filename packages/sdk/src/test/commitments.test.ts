@@ -17,7 +17,7 @@ import {
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
 import { InvoiceRegistry, createNivraPrivateState, witnesses } from "@nivra/contracts";
-import { computeInvoiceCommitment, computeMerchantCommitment } from "../commitments.js";
+import { computeInvoiceCommitment, computeMerchantCommitment, computePayoutKeyCommitment } from "../commitments.js";
 
 const randomBytes = (length: number): Uint8Array => new Uint8Array(nodeRandomBytes(length));
 
@@ -91,6 +91,22 @@ describe("SDK commitments — cross-checked against the real compiled contract",
     const sdkCommitment = computeInvoiceCommitment({ merchantCommitment, ...inv });
 
     expect(Buffer.from(chainCommitment)).toEqual(Buffer.from(sdkCommitment));
+  });
+
+  it("computePayoutKeyCommitment matches the key commitment stored by createInvoice", () => {
+    const { contract, circuitContext } = setUpContract(randomBytes(32), randomBytes(32));
+    const inv = sampleInvoice();
+    const { context } = contract.impureCircuits.createInvoice(
+      circuitContext,
+      inv.amount,
+      inv.tokenColor,
+      inv.expiry,
+      inv.metadataHash,
+      inv.invoiceSecret,
+      inv.nonce,
+    );
+    const [, record] = [...InvoiceRegistry.ledger(context.currentQueryContext.state).invoices][0];
+    expect(Buffer.from(record.payoutKeyCommitment)).toEqual(Buffer.from(computePayoutKeyCommitment(new Uint8Array(32))));
   });
 
   it("produces different commitments for different nonces (no accidental collisions)", () => {
