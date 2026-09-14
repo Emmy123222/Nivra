@@ -17,17 +17,17 @@ reproducible test exists for it.
 | Repository scaffold | DONE | directories + root package.json + LICENSE + README created; git initialized |
 | Smallest valid Compact contract | DONE | `contracts/src/invoice_registry.compact` compiles cleanly with `compact compile` (exit 0) |
 | Contract: invoice commitment registration (`createInvoice`) | TESTED | 3 tests: valid create, duplicate rejected, distinct nonces give distinct commitments |
-| Contract: merchant authorization (`cancelInvoice`, `claimSettlement`) | TESTED | hash-preimage proof against `merchantCommitment`, not self-comparison; 3 cancel-auth tests + 2 claim-auth tests |
+| Contract: merchant authorization (`cancelInvoice`) | TESTED | hash-preimage proof against `merchantCommitment`, not self-comparison; cancellation authorization tests cover valid and invalid credentials |
 | Contract: cancellation | TESTED | valid cancel, double-cancel rejected, cancelled invoice can't be settled |
 | Contract: expiry (`blockTimeLt`/`blockTimeGte`, `markExpired`) | TESTED | 5 tests using `advanceTimeTo` on the simulator; confirmed real block-time semantics, not assumed |
 | Contract: atomic settlement via `receiveShielded` + `sendShielded` | TESTED | matching value/color is received and routed as a transient coin to the merchant key committed at invoice creation; redirected-key, double-payment, cancellation, expiry, and nonexistent-invoice paths tested |
-| Contract: payout binding | TESTED | `payoutKeyCommitment` prevents a modified payment link from redirecting funds; settlement sets `claimed = true` atomically |
+| Contract: payout binding | TESTED | `payoutKeyCommitment` prevents a modified payment link from redirecting funds; settlement pays out atomically |
 | Receipt commitment | TESTED | covered by the settlement test asserting `receipts.member(commitment)` |
-| Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 24/24 passing; run via `npm test --workspace=contracts` |
-| SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | `computeMerchantCommitment`/`computeInvoiceCommitment`/`computeCoinCommitment`/`computeReceiptCommitment`; 4/4 tests cross-check output against the real compiled contract's own `createInvoice` result, byte-for-byte |
+| Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 21/21 passing; run via `npm test --workspace=contracts` |
+| SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | merchant/invoice/payout/receipt commitments are cross-checked against the compiled contract byte-for-byte |
 | SDK: contract deployment/circuit-call layer | DONE | `packages/sdk/src/{common-types,providers,contract}.ts`; typechecks cleanly against the real installed `@midnight-ntwrk/midnight-js@4.1.1`/`compact-js@2.5.1` packages; not run end-to-end (no proof server/live network in this sandbox) — see below |
-| Frontend (`apps/web`) | DONE | Next.js 16 + Tailwind app; all 6 routes (landing, dashboard, create, checkout, connect, receipt) verified rendering with zero console/page errors in a real headless browser (Playwright); see below |
-| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | added to close the gap against `docs/WAVE1_SCOPE.md`'s named SDK surface; 21 SDK tests total, including cross-invoice receipt-replay |
+| Frontend (`apps/web`) | DONE | Next.js 16 + Tailwind app; all 7 product routes (landing, dashboard, invoice detail, create, checkout, connect, receipt) compile in the production build; core routes pass HTTP smoke tests; see below |
+| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 24 SDK tests total, including cross-invoice receipt replay and payout-key substitution |
 | Security review (Phase 27) | TESTED | `docs/SECURITY_REVIEW.md`; one real Low-severity gap found and fixed (zero-amount invoices), one test-coverage gap closed (exact expiry boundary), full attack-category checklist with evidence |
 
 ## Frontend (`apps/web`)
@@ -145,7 +145,7 @@ build` → `dist/`, `exports`/`main`/`types` in `package.json`) specifically so
 `@nivra/sdk` could depend on it as a normal npm workspace package rather than reaching
 into another package's `src/`. Verified end-to-end from a clean checkout: `rm -rf
 contracts/src/managed contracts/dist packages/sdk/dist && npm test` (root script now
-runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 26/26 tests
+runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 45/45 tests
 green.
 
 ## SDK: contract deployment/circuit-call layer
@@ -233,7 +233,7 @@ Tests cover atomic payout and malicious key substitution.
 1. **Buildathon target network** — assumed Preprod (see `docs/TOOLCHAIN.md`); no
    Buildathon-specific rules page was available. Confirm and correct if wrong.
 2. **Coin-linkability implication for the privacy story** — `docs/PRIVACY_MODEL.md`
-   now states plainly that the specific coin object used in settlement/claim is
+   now states plainly that the specific transient coin used in settlement is
    linkable via its commitment, even though amount/token-color never touch the
    ledger. Whether this is acceptable for the product's privacy claims, or whether
    Wave 2 needs an additional mixing/relayer step, is a product decision, not a

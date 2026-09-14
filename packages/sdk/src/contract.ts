@@ -11,7 +11,7 @@
 // `DeployedContract` types.
 //
 // docs/WAVE1_SCOPE.md's original SDK surface list also names `createInvoice`,
-// `settleInvoice`, `cancelInvoice`, `claimSettlement` as SDK-level functions. That
+// `settleInvoice` and `cancelInvoice` as SDK-level functions. That
 // list predates confirming the real midnight-js API shape; now that it's verified,
 // `contract.callTx.<circuitName>(...)` already is that clean, typed, one-line
 // interface, so wrapping it again in an identically-named free function would add a

@@ -15,8 +15,8 @@ Wave 1 — no API exists yet).
 - **Settlement integrity** — an invoice becomes PAID only via a real, verified value
   transfer of the correct amount/token into the contract, never by calling a "mark
   paid" function on its own.
-- **Merchant authorization** — cancellation and fund-claiming require proving
-  knowledge of `merchantSecret` matching the stored `merchantCommitment`; no operation
+- **Merchant authorization** — cancellation requires proving knowledge of
+  `merchantSecret` matching the stored `merchantCommitment`; no operation
   authorizes itself by simply re-supplying the public commitment.
 - **Replay resistance** — the invoice state machine (not a bolted-on nullifier) makes
   double-settlement structurally impossible: `settleInvoice` asserts `state ==
@@ -28,9 +28,8 @@ Wave 1 — no API exists yet).
   `docs/STATE_MACHINE.md`); the frontend has no authority over lifecycle state.
 - **Confidentiality** — see `docs/PRIVACY_MODEL.md`.
 - **Unlinkability** — partial; honestly scoped in `docs/PRIVACY_MODEL.md`.
-- **Failure atomicity** — payment and PAID-state transition are atomic (single
-  circuit call); merchant fund-claiming is a separate, later transaction by design —
-  documented, not accidental (see Phase 7 discussion in `docs/PROTOCOL_ARCHITECTURE.md`).
+- **Failure atomicity** — payer debit, merchant payout, receipt registration, and the
+  PAID transition occur in one circuit call. A failed assertion commits none of them.
 - **Resistance to unauthorized mutation** — every mutating circuit either requires no
   special authorization (permissionless, like `markExpired`, where anyone triggering a
   state-cleanup that only succeeds if the deadline has genuinely passed is harmless)
@@ -100,15 +99,8 @@ Wave 1 — no API exists yet).
   recomputed/checked before `receiveShielded` runs.
 - **Publicly revealed:** the state transition to PAID and the new `receiptCommitment`
   entry; nothing about the amount, token, or payer.
-
-### `claimSettlement`
-- **Who can call it:** anyone can attempt it.
-- **Authorization proof:** same `merchantSecret` proof as `cancelInvoice`.
-- **Attacker calls it:** cannot succeed without the merchant's secret.
-- **Double-claim:** the circuit must assert funds haven't already been claimed for
-  this commitment (a boolean/claimed-flag in the invoice record, or the underlying
-  Zswap coin simply no longer existing after the first claim) — this is a concrete
-  implementation requirement flagged for the contract, not left implicit.
+- **Payout redirection:** rejected because the supplied payout key must match the
+  `payoutKeyCommitment` fixed during `createInvoice`.
 
 ### `markExpired`
 - **Who can call it:** anyone (permissionless by design — it's a public good, not a
@@ -122,8 +114,8 @@ Wave 1 — no API exists yet).
 
 ## Cross-cutting attacks
 
-- **Compromised frontend:** cannot mint fake PAID states, cannot forge cancellations
-  or claims (no secrets available to it beyond what the merchant/payer explicitly
+- **Compromised frontend:** cannot mint fake PAID states or forge cancellations
+  (no secrets available to it beyond what the merchant/payer explicitly
   holds), can at worst show a user misleading UI — mitigated by clients recomputing
   commitments and checking chain state directly rather than trusting any single UI's
   claims.

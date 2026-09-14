@@ -5,23 +5,23 @@
 Merchant connects wallet → creates private invoice → contract registers commitment →
 payment link/QR generated → customer opens checkout → client verifies invoice
 commitment → customer connects wallet → customer executes a real shielded payment →
-contract verifies settlement → invoice becomes PAID → private receipt generated →
-merchant dashboard updates → merchant claims funds → receipt can be verified.
+contract verifies settlement and atomically routes funds to the merchant → invoice
+becomes PAID → private receipt generated → merchant dashboard updates → receipt can
+be verified.
 
 ## In scope
 
 - One Compact contract: `InvoiceRegistry` (`contracts/src/invoice_registry.compact`),
   plus a small `types.compact`/`crypto.compact` if the main contract benefits from
   splitting out shared struct/hash-domain definitions — not introduced speculatively.
-- Circuits: `createInvoice`, `cancelInvoice`, `settleInvoice`, `claimSettlement`,
-  `markExpired`.
+- Circuits: `createInvoice`, `cancelInvoice`, `settleInvoice`, `markExpired`.
 - One supported shielded token type per invoice (`tokenColor` is a preimage field;
   multiple *types* of token are not specially handled beyond that).
 - `packages/sdk`: `connectWallet` (real, wraps the DApp Connector), `getInvoiceStatus`,
   `verifyInvoicePaymentLink` (the `verifyInvoice` of this list, specialized to a
   payment link), `verifyReceipt` (plus `receipt-link.ts` for a shareable,
   self-verifying receipt URL) — all implemented and tested. `createInvoice`,
-  `settleInvoice`, `cancelInvoice`, `claimSettlement` are satisfied by
+  `settleInvoice` and `cancelInvoice` are satisfied by
   `deployedContract.callTx.<circuitName>(...)`, generic machinery from
   `midnight-js-contracts` verified against the real installed package rather than
   reimplemented as identically-named wrapper functions with no behavior of their

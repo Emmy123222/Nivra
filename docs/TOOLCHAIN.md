@@ -189,7 +189,7 @@ official docs/example source, not assumed)
   `sendImmediateShielded`, `createZswapOutput`; unshielded equivalents
   `sendUnshielded`/`receiveUnshielded`; `ownPublicKey(): ZswapCoinPublicKey`.
   **Verified directly against the compiler (2026-09-12), not assumed:** `compact
-  compile` was run against a real `settleInvoice`/`claimSettlement` draft.
+  compile` was run against the real atomic `settleInvoice` circuit.
   `ShieldedCoinInfo` has accessible `.color`/`.value` fields; `receiveShielded(coin)`
   and `sendShielded(input, recipient, value)` both type-check with the signatures
   above. Critically, the compiler's own disclosure analysis reports that calling
@@ -199,7 +199,7 @@ official docs/example source, not assumed)
   commitment** — both require an explicit `disclose()` at the call site to compile.
   This is a real, load-bearing privacy fact for this protocol, not a hypothetical:
   amount and token color stay off the public ledger (per `PRIVACY_MODEL.md`), but the
-  specific coin object moved during settlement/claim is linkable on-chain by
+  specific coin object moved during atomic settlement is linkable on-chain by
   construction of Zswap's own accounting. Documented precisely in
   `docs/PRIVACY_MODEL.md` rather than glossed over.
 - Token model: `NIGHT` is the public/unshielded governance and fee-generation token;

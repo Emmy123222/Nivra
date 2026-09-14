@@ -1,0 +1,54 @@
+Nivra deployment readiness / attempt — 2026-09-14 Africa/Lagos
+
+Target network: preprod
+Contract: contracts/src/invoice_registry.compact
+Compiled circuits: createInvoice, cancelInvoice, settleInvoice, markExpired
+Frontend production server: http://localhost:3000
+
+Checks and literal results:
+$ compact compile --version
+0.31.1
+exit=0
+
+$ command -v docker
+docker_not_installed
+exit=1
+
+$ curl --connect-timeout 2 http://127.0.0.1:6300
+curl: (7) Failed to connect to 127.0.0.1 port 6300
+proof_server_http=000
+exit=7
+
+$ curl --connect-timeout 8 https://indexer.preprod.midnight.network/api/v3/graphql
+indexer_http=405
+exit=0
+Interpretation: the host is reachable; a GET request is not an accepted GraphQL operation.
+
+$ env | grep -E '^(WALLET_MNEMONIC|WALLET_SEED|MIDNIGHT_WALLET_SEED|NEXT_PUBLIC_PROOF_SERVER_URL)='
+(no output)
+exit=1
+
+$ test -f /home/emmanuel-ogheneovo/snap/brave/680/.config/BraveSoftware/Brave-Browser/Default/Extensions/hgeekaiplokcnmakghbdfbgnlfheichg/2.39.0_0/manifest.json
+exit=0
+Result: a DApp Connector-compatible wallet extension is installed in Brave.
+
+$ npm run start --workspace=apps/web
+Local: http://localhost:3000
+Ready in 127ms
+exit=running
+
+HTTP smoke test:
+/                                        http=200 bytes=51680
+/dashboard                               http=200 bytes=22214
+/checkout                                http=200 bytes=9504
+/receipt                                 http=200 bytes=9502
+/keys/settleInvoice.prover               http=200 bytes=19541301
+/zkir/settleInvoice.bzkir                http=200 bytes=1447
+/keys/claimSettlement.prover             http=404 bytes=10869
+
+Preprod transaction status: not submitted.
+Remaining external transaction gates: unlock/connect the installed wallet on Preprod,
+confirm it has funded tNIGHT/tDUST, and approve the deployment transaction. The app's
+real deployment path is Dashboard -> Connect wallet -> Set up registry; it calls
+SDK deployInvoiceRegistry -> midnight-js deployContract and persists the resulting
+contract address only after finalization.

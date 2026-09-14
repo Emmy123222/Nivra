@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // InvoiceRegistry: private invoice commitments, merchant authorization,
-// lifecycle state, and atomic shielded payment settlement.
+// lifecycle state, and (incrementally) payment settlement.
 //
 // See docs/PROTOCOL_ARCHITECTURE.md, docs/STATE_MACHINE.md and
 // docs/INVARIANTS.md for the design this implements.
@@ -22,10 +22,15 @@ export struct InvoiceRecord {
   state: InvoiceState;
   merchantCommitment: Bytes<32>;
   expiry: Uint<64>;
+  // Binds settlement to a specific coin so claimSettlement cannot be pointed at an
+  // unrelated coin the contract happens to hold, or at the same coin twice across
+  // different invoices. See docs/INVARIANTS.md, INVARIANT 8.
+  paidCoinCommitment: Bytes<32>;
   // The merchant's shielded payout key is committed when the invoice is created.
   // Checkout reveals the key only to the payer and proves it matches this value,
   // preventing a modified link from redirecting settlement.
   payoutKeyCommitment: Bytes<32>;
+  claimed: Boolean;
 }
 
 export ledger invoices: Map<Bytes<32>, InvoiceRecord>;
@@ -83,7 +88,9 @@ export circuit createInvoice(
     state: InvoiceState.ACTIVE,
     merchantCommitment: merchantCommitment,
     expiry: disclose(expiry),
-    payoutKeyCommitment: payoutKeyCommitment
+    paidCoinCommitment: default<Bytes<32>>,
+    payoutKeyCommitment: payoutKeyCommitment,
+    claimed: false
   });
   return commitment;
 }
@@ -108,7 +115,9 @@ export circuit cancelInvoice(
     state: InvoiceState.CANCELLED,
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
-    payoutKeyCommitment: record.payoutKeyCommitment
+    paidCoinCommitment: record.paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
+    claimed: record.claimed
   });
 }
 
@@ -132,14 +141,19 @@ export circuit settleInvoice(
   assert(invoices.member(commitment), "No such invoice");
   const record = invoices.lookup(commitment);
   assert(record.state == InvoiceState.ACTIVE, "Invoice is not active");
-  assert(record.merchantCommitment == merchantCommitment, "Merchant commitment does not match invoice");
-  assert(record.expiry == expiry, "Expiry does not match invoice");
-  assert(blockTimeLt(record.expiry), "Invoice has expired");
+  assert(blockTimeLt(disclose(expiry)), "Invoice has expired");
 
   const coin = incomingPaymentCoin();
   assert(coin.color == tokenColor, "Wrong token for this invoice");
   assert(coin.value == amount as Uint<128>, "Coin value does not match invoice amount");
   receiveShielded(disclose(coin));
+
+  const paidCoinCommitment = disclose(persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "nivra:coin:v1"),
+    coin.nonce,
+    coin.color,
+    coin.value as Field as Bytes<32>
+  ]));
 
   // Route the freshly received contract output to the merchant in the same
   // transaction. mt_index 0 marks a transient coin (an output immediately
@@ -163,9 +177,52 @@ export circuit settleInvoice(
     state: InvoiceState.PAID,
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
-    payoutKeyCommitment: record.payoutKeyCommitment
+    paidCoinCommitment: paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
+    claimed: true
   });
   receipts.insert(commitment, disclose(persistentHash<Vector<2, Bytes<32>>>([commitment, localPayerReceiptSecret()])));
+}
+
+witness heldCoin(): QualifiedShieldedCoinInfo;
+
+export circuit claimSettlement(
+  amount: Uint<64>,
+  tokenColor: Bytes<32>,
+  expiry: Uint<64>,
+  metadataHash: Bytes<32>,
+  invoiceSecret: Bytes<32>,
+  nonce: Bytes<32>
+): [] {
+  const merchantCommitment = disclose(merchantCommitmentOf(localMerchantSecret(), localMerchantNonce()));
+  const commitment = disclose(invoiceCommitmentOf(
+    merchantCommitment, amount, tokenColor, expiry, metadataHash, invoiceSecret, nonce
+  ));
+  assert(invoices.member(commitment), "No such invoice");
+  const record = invoices.lookup(commitment);
+  assert(record.state == InvoiceState.PAID, "Invoice is not paid");
+  assert(record.merchantCommitment == merchantCommitment, "Not the authorized merchant");
+  assert(!record.claimed, "Settlement for this invoice has already been claimed");
+
+  const coin = heldCoin();
+  const offeredCoinCommitment = disclose(persistentHash<Vector<4, Bytes<32>>>([
+    pad(32, "nivra:coin:v1"),
+    coin.nonce,
+    coin.color,
+    coin.value as Field as Bytes<32>
+  ]));
+  assert(offeredCoinCommitment == record.paidCoinCommitment, "Offered coin does not match this invoice's settlement");
+
+  sendShielded(disclose(coin), left<ZswapCoinPublicKey, ContractAddress>(disclose(merchantPayoutKey())), disclose(amount as Uint<128>));
+
+  invoices.insert(commitment, InvoiceRecord {
+    state: record.state,
+    merchantCommitment: record.merchantCommitment,
+    expiry: record.expiry,
+    paidCoinCommitment: record.paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
+    claimed: true
+  });
 }
 
 export circuit markExpired(
@@ -183,13 +240,13 @@ export circuit markExpired(
   assert(invoices.member(commitment), "No such invoice");
   const record = invoices.lookup(commitment);
   assert(record.state == InvoiceState.ACTIVE, "Invoice is not active");
-  assert(record.merchantCommitment == merchantCommitment, "Merchant commitment does not match invoice");
-  assert(record.expiry == expiry, "Expiry does not match invoice");
-  assert(blockTimeGte(record.expiry), "Invoice has not expired yet");
+  assert(blockTimeGte(disclose(expiry)), "Invoice has not expired yet");
   invoices.insert(commitment, InvoiceRecord {
     state: InvoiceState.EXPIRED,
     merchantCommitment: record.merchantCommitment,
     expiry: record.expiry,
-    payoutKeyCommitment: record.payoutKeyCommitment
+    paidCoinCommitment: record.paidCoinCommitment,
+    payoutKeyCommitment: record.payoutKeyCommitment,
+    claimed: record.claimed
   });
 }

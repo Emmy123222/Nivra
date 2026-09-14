@@ -114,7 +114,8 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
   it("pays an active invoice via a real receiveShielded call and writes a receipt commitment", () => {
     const merchantSecret = randomBytes(32);
     const merchantNonce = randomBytes(32);
-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
+    const merchantPayoutKey = randomBytes(32);
+    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce, 0, merchantPayoutKey);
     const inv = sampleInvoice();
     const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
     const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
@@ -127,8 +128,18 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
 
     const ledger = sim.getLedger();
     expect(ledger.invoices.lookup(commitment).state).toEqual(InvoiceState.PAID);
-    expect(ledger.invoices.lookup(commitment).claimed).toBe(true);
     expect(ledger.receipts.member(commitment)).toBe(true);
+
+    // The generated circuit must consume the transient contract output and
+    // route the second output to the exact payout key committed at creation.
+    const zswap = sim.circuitContext.currentZswapLocalState;
+    expect(zswap.inputs).toHaveLength(1);
+    expect(zswap.inputs[0]?.mt_index).toBe(0n);
+    expect(zswap.outputs).toHaveLength(2);
+    expect(zswap.outputs[1]?.recipient.is_left).toBe(true);
+    expect(zswap.outputs[1]?.recipient.left.bytes).toEqual(merchantPayoutKey);
+    expect(zswap.outputs[1]?.coinInfo.value).toBe(inv.amount);
+    expect(zswap.outputs[1]?.coinInfo.color).toEqual(inv.tokenColor);
   });
 
   it("rejects settlement when the offered coin's value does not match the invoice amount", () => {
@@ -144,6 +155,21 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
     expect(() =>
       sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
     ).toThrow("Coin value does not match invoice amount");
+  });
+
+  it("rejects settlement when the offered coin's token does not match the invoice", () => {
+    const sim = new InvoiceRegistrySimulator(randomBytes(32), randomBytes(32));
+    const inv = sampleInvoice();
+    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+
+    sim.setIncomingPaymentCoin(
+      { nonce: randomBytes(32), color: randomBytes(32), value: inv.amount },
+      randomBytes(32),
+    );
+    expect(() =>
+      sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
+    ).toThrow("Wrong token for this invoice");
   });
 
   it("rejects a second settlement attempt against an already-PAID invoice (double payment)", () => {
@@ -191,84 +217,11 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
     const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
     const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
     sim.setIncomingPaymentCoin({ nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount }, randomBytes(32));
-    sim.setHeldCoin(
-      { nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount, mt_index: 0n },
-      randomBytes(32),
-    );
+    sim.setMerchantPayoutKey(randomBytes(32));
 
     expect(() =>
       sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
     ).toThrow("Payout key does not match this invoice");
-  });
-});
-
-describe("InvoiceRegistry — ATOMIC PAYOUT", () => {
-  const settle = (
-    sim: InvoiceRegistrySimulator,
-    merchantCommitment: Uint8Array,
-    inv: ReturnType<typeof sampleInvoice>,
-    coinNonce: Uint8Array,
-  ) => {
-    sim.setIncomingPaymentCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount }, randomBytes(32));
-    sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-  };
-
-  it("marks the shielded settlement claimed in the payment transaction", () => {
-    const merchantSecret = randomBytes(32);
-    const merchantNonce = randomBytes(32);
-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
-    const inv = sampleInvoice();
-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
-    const coinNonce = randomBytes(32);
-    settle(sim, merchantCommitment, inv, coinNonce);
-
-    expect(sim.getLedger().invoices.lookup(commitment).claimed).toBe(true);
-  });
-
-  it("rejects a separate claim because atomic settlement already paid out", () => {
-    const merchantSecret = randomBytes(32);
-    const merchantNonce = randomBytes(32);
-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
-    const inv = sampleInvoice();
-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
-    const coinNonce = randomBytes(32);
-    settle(sim, merchantCommitment, inv, coinNonce);
-    sim.setHeldCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
-    expect(() =>
-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
-    ).toThrow("Settlement for this invoice has already been claimed");
-  });
-
-  it("rejects claiming by someone without the merchant's secret", () => {
-    const merchantSecret = randomBytes(32);
-    const merchantNonce = randomBytes(32);
-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
-    const inv = sampleInvoice();
-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
-    const coinNonce = randomBytes(32);
-    settle(sim, merchantCommitment, inv, coinNonce);
-
-    sim.switchMerchant(randomBytes(32), randomBytes(32));
-    sim.setHeldCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
-    expect(() =>
-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
-    ).toThrow("No such invoice");
-  });
-
-  it("rejects claiming an invoice that hasn't been paid yet", () => {
-    const merchantSecret = randomBytes(32);
-    const merchantNonce = randomBytes(32);
-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
-    const inv = sampleInvoice();
-    sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
-
-    sim.setHeldCoin({ nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
-    expect(() =>
-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
-    ).toThrow("Invoice is not paid");
   });
 });
 
@@ -375,13 +328,11 @@ describe("InvoiceRegistry — PRIVACY", () => {
     // is the real enforcement here — this assertion documents that guarantee in a way
     // that fails loudly if the schema is ever widened to leak more.
     expect(Object.keys(record).sort()).toEqual([
-      "claimed",
       "expiry",
       "merchantCommitment",
-      "paidCoinCommitment",
       "payoutKeyCommitment",
       "state",
     ]);
-    // Both *Commitment fields are hashes rather than the coin or payout key.
+    // Both public identity fields are hashes rather than secrets or payout keys.
   });
 });

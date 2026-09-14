@@ -18,7 +18,7 @@ or requires privileged access), **Low** (hygiene/defense-in-depth), **Informatio
 |---|---|---|---|
 | 1 | `createInvoice` accepted `amount == 0` | Low | **Fixed** |
 | 2 | No test at the exact `time == expiry` boundary | Low (process gap, not a code bug — the code was already correct) | **Fixed** (test added) |
-| 3 | `claimSettlement` had no binding between the claimed coin and the settling coin | High | **Fixed** (INVARIANT 8, prior session) |
+| 3 | Delayed settlement claims required unavailable contract-coin index recovery | High | **Fixed** by atomic transient payout (INVARIANT 8) |
 | 4 | Circuit simulation cannot verify that a settlement coin is a real, previously-unspent Zswap UTXO | Informational | **Documented**, not fixable in this environment |
 | 5 | All of a merchant's invoices are linkable to each other via the shared public `merchantCommitment` | Informational | **Documented** (already in `docs/PRIVACY_MODEL.md`, confirmed here) |
 | 6 | Payment is permissionless (anyone with a link can pay any invoice) | Informational | **By design**, not a bug |
@@ -131,7 +131,8 @@ For each category, what was checked and where the evidence lives:
 
 ## What this review does not, and cannot, cover here
 
-- Real proof generation and verification (no proof server in this sandbox).
+- Real proof generation and verification (no local proof server; the installed
+  browser wallet's delegated prover has not yet been approved for this DApp).
 - Real network consensus/finality behavior, front-running by block producers, or
   mempool-level transaction ordering attacks — these depend on the deployed
   network's actual behavior, not this contract's logic.
@@ -139,7 +140,7 @@ For each category, what was checked and where the evidence lives:
   malicious wallet implementation — out of scope for a contract/SDK security review,
   and partially addressed by design already (Nivra never receives spending keys;
   see `docs/PROTOCOL_ARCHITECTURE.md`).
-- Anything requiring a real Midnight wallet, which does not exist in this sandbox
-  (see `docs/BUILD_STATUS.md`).
+- A real Preprod submission requiring the installed browser wallet to be unlocked,
+  connected, funded, and explicitly approved (see `docs/BUILD_STATUS.md`).
 
 These are stated as open items, not silently assumed safe.

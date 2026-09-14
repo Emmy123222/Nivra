@@ -24,18 +24,18 @@ line items. See `docs/PRIVACY_MODEL.md` for the exact field-by-field reasoning.
 
 Wave 1 is functionally complete against `docs/WAVE1_SCOPE.md`, with the honest
 caveats stated throughout `docs/BUILD_STATUS.md`. The Compact contract
-(`contracts/src/invoice_registry.compact`, 5 circuits: create, cancel, settle, claim
-settlement, mark expired) compiles cleanly and is covered by 24 passing circuit-level
-tests, including two real correctness gaps found and fixed during development rather
-than after (a missing coin-to-invoice binding in settlement claims, and a missing
-zero-amount guard) — see `docs/SECURITY_REVIEW.md` for the full attacker-first pass
-performed before calling Wave 1 done. The SDK (`packages/sdk`, 22 passing tests)
+(`contracts/src/invoice_registry.compact`, 4 circuits: create, cancel, settle, mark
+expired) compiles cleanly and is covered by 21 circuit-level tests, including correctness
+gaps found and fixed during development (the original delayed-claim/index design,
+payout-key redirection, and a missing zero-amount guard) — see
+`docs/SECURITY_REVIEW.md` for the full attacker-first pass
+performed before calling Wave 1 done. The SDK (`packages/sdk`, 24 tests)
 provides commitment verification, payment links, receipt links, DApp Connector wallet
 connection, and contract deployment/circuit-call wiring — all typechecked against the
 real installed Midnight packages, with the commitment/receipt logic additionally
 cross-checked byte-for-byte against the real compiled contract. The frontend
 (`apps/web`, Next.js 16) implements the full Wave 1 golden-path UI wired to real SDK
-logic — all 6 routes verified error-free in a real headless browser, including
+logic — all 7 product routes compile in the production build, including
 payment-link and receipt-link verification and an honest "no wallet found" path.
 Checkout now uses the connected wallet to balance an atomic Zswap settlement: the
 contract receives the exact invoiced coin, routes the transient output to the payout

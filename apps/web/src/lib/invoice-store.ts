@@ -15,8 +15,10 @@
 // production custody should work — see docs/THREAT_MODEL.md.
 
 const CREDENTIAL_KEY = "nivra:demo-merchant-credential:v1";
-const INVOICES_KEY = "nivra:demo-merchant-invoices:v1";
-const CONTRACT_KEY = "nivra:demo-invoice-registry-address:v1";
+// v2 deliberately separates this atomic-payout contract schema from addresses
+// and invoice preimages created by the earlier two-step settlement prototype.
+const INVOICES_KEY = "nivra:demo-merchant-invoices:v2";
+const CONTRACT_KEY = "nivra:demo-invoice-registry-address:v2";
 
 export type MerchantCredential = {
   readonly merchantSecret: Uint8Array;

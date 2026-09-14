@@ -1,0 +1,937 @@
+diff --git a/README.md b/README.md
+index f4f8119..7eb0fef 100644
+--- a/README.md
++++ b/README.md
+@@ -24,18 +24,18 @@ line items. See `docs/PRIVACY_MODEL.md` for the exact field-by-field reasoning.
+ 
+ Wave 1 is functionally complete against `docs/WAVE1_SCOPE.md`, with the honest
+ caveats stated throughout `docs/BUILD_STATUS.md`. The Compact contract
+-(`contracts/src/invoice_registry.compact`, 5 circuits: create, cancel, settle, claim
+-settlement, mark expired) compiles cleanly and is covered by 24 passing circuit-level
+-tests, including two real correctness gaps found and fixed during development rather
+-than after (a missing coin-to-invoice binding in settlement claims, and a missing
+-zero-amount guard) — see `docs/SECURITY_REVIEW.md` for the full attacker-first pass
+-performed before calling Wave 1 done. The SDK (`packages/sdk`, 22 passing tests)
++(`contracts/src/invoice_registry.compact`, 4 circuits: create, cancel, settle, mark
++expired) compiles cleanly and is covered by 21 circuit-level tests, including correctness
++gaps found and fixed during development (the original delayed-claim/index design,
++payout-key redirection, and a missing zero-amount guard) — see
++`docs/SECURITY_REVIEW.md` for the full attacker-first pass
++performed before calling Wave 1 done. The SDK (`packages/sdk`, 24 tests)
+ provides commitment verification, payment links, receipt links, DApp Connector wallet
+ connection, and contract deployment/circuit-call wiring — all typechecked against the
+ real installed Midnight packages, with the commitment/receipt logic additionally
+ cross-checked byte-for-byte against the real compiled contract. The frontend
+ (`apps/web`, Next.js 16) implements the full Wave 1 golden-path UI wired to real SDK
+-logic — all 6 routes verified error-free in a real headless browser, including
++logic — all 7 product routes compile in the production build, including
+ payment-link and receipt-link verification and an honest "no wallet found" path.
+ Checkout now uses the connected wallet to balance an atomic Zswap settlement: the
+ contract receives the exact invoiced coin, routes the transient output to the payout
+diff --git a/apps/web/scripts/copy-zk-assets.mjs b/apps/web/scripts/copy-zk-assets.mjs
+index e96cc67..06f505f 100644
+--- a/apps/web/scripts/copy-zk-assets.mjs
++++ b/apps/web/scripts/copy-zk-assets.mjs
+@@ -11,7 +11,7 @@
+ // package.json `predev`/`prebuild`). Not committed — public/keys and
+ // public/zkir are gitignored, same as contracts/src/managed/.
+ 
+-import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
++import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+ import { dirname, join } from "node:path";
+ import { fileURLToPath } from "node:url";
+ 
+@@ -30,6 +30,11 @@ if (!existsSync(keysSrc) || !existsSync(zkirSrc)) {
+ 
+ const keysDest = join(here, "..", "public", "keys");
+ const zkirDest = join(here, "..", "public", "zkir");
++
++// The circuit set can shrink between compiler runs. Remove the previous copy
++// first so deleted circuits are not still advertised or shipped by the web app.
++rmSync(keysDest, { recursive: true, force: true });
++rmSync(zkirDest, { recursive: true, force: true });
+ mkdirSync(keysDest, { recursive: true });
+ mkdirSync(zkirDest, { recursive: true });
+ 
+diff --git a/apps/web/src/lib/invoice-store.ts b/apps/web/src/lib/invoice-store.ts
+index 2476140..1ebd213 100644
+--- a/apps/web/src/lib/invoice-store.ts
++++ b/apps/web/src/lib/invoice-store.ts
+@@ -15,8 +15,10 @@
+ // production custody should work — see docs/THREAT_MODEL.md.
+ 
+ const CREDENTIAL_KEY = "nivra:demo-merchant-credential:v1";
+-const INVOICES_KEY = "nivra:demo-merchant-invoices:v1";
+-const CONTRACT_KEY = "nivra:demo-invoice-registry-address:v1";
++// v2 deliberately separates this atomic-payout contract schema from addresses
++// and invoice preimages created by the earlier two-step settlement prototype.
++const INVOICES_KEY = "nivra:demo-merchant-invoices:v2";
++const CONTRACT_KEY = "nivra:demo-invoice-registry-address:v2";
+ 
+ export type MerchantCredential = {
+   readonly merchantSecret: Uint8Array;
+diff --git a/contracts/src/invoice_registry.compact b/contracts/src/invoice_registry.compact
+index 1435a6f..9fb867f 100644
+--- a/contracts/src/invoice_registry.compact
++++ b/contracts/src/invoice_registry.compact
+@@ -2,7 +2,7 @@
+ // SPDX-License-Identifier: Apache-2.0
+ //
+ // InvoiceRegistry: private invoice commitments, merchant authorization,
+-// lifecycle state, and (incrementally) payment settlement.
++// lifecycle state, and atomic shielded payment settlement.
+ //
+ // See docs/PROTOCOL_ARCHITECTURE.md, docs/STATE_MACHINE.md and
+ // docs/INVARIANTS.md for the design this implements.
+@@ -22,15 +22,10 @@ export struct InvoiceRecord {
+   state: InvoiceState;
+   merchantCommitment: Bytes<32>;
+   expiry: Uint<64>;
+-  // Binds settlement to a specific coin so claimSettlement cannot be pointed at an
+-  // unrelated coin the contract happens to hold, or at the same coin twice across
+-  // different invoices. See docs/INVARIANTS.md, INVARIANT 8.
+-  paidCoinCommitment: Bytes<32>;
+   // The merchant's shielded payout key is committed when the invoice is created.
+   // Checkout reveals the key only to the payer and proves it matches this value,
+   // preventing a modified link from redirecting settlement.
+   payoutKeyCommitment: Bytes<32>;
+-  claimed: Boolean;
+ }
+ 
+ export ledger invoices: Map<Bytes<32>, InvoiceRecord>;
+@@ -88,9 +83,7 @@ export circuit createInvoice(
+     state: InvoiceState.ACTIVE,
+     merchantCommitment: merchantCommitment,
+     expiry: disclose(expiry),
+-    paidCoinCommitment: default<Bytes<32>>,
+-    payoutKeyCommitment: payoutKeyCommitment,
+-    claimed: false
++    payoutKeyCommitment: payoutKeyCommitment
+   });
+   return commitment;
+ }
+@@ -115,9 +108,7 @@ export circuit cancelInvoice(
+     state: InvoiceState.CANCELLED,
+     merchantCommitment: record.merchantCommitment,
+     expiry: record.expiry,
+-    paidCoinCommitment: record.paidCoinCommitment,
+-    payoutKeyCommitment: record.payoutKeyCommitment,
+-    claimed: record.claimed
++    payoutKeyCommitment: record.payoutKeyCommitment
+   });
+ }
+ 
+@@ -141,20 +132,15 @@ export circuit settleInvoice(
+   assert(invoices.member(commitment), "No such invoice");
+   const record = invoices.lookup(commitment);
+   assert(record.state == InvoiceState.ACTIVE, "Invoice is not active");
+-  assert(blockTimeLt(disclose(expiry)), "Invoice has expired");
++  assert(record.merchantCommitment == merchantCommitment, "Merchant commitment does not match invoice");
++  assert(record.expiry == expiry, "Expiry does not match invoice");
++  assert(blockTimeLt(record.expiry), "Invoice has expired");
+ 
+   const coin = incomingPaymentCoin();
+   assert(coin.color == tokenColor, "Wrong token for this invoice");
+   assert(coin.value == amount as Uint<128>, "Coin value does not match invoice amount");
+   receiveShielded(disclose(coin));
+ 
+-  const paidCoinCommitment = disclose(persistentHash<Vector<4, Bytes<32>>>([
+-    pad(32, "nivra:coin:v1"),
+-    coin.nonce,
+-    coin.color,
+-    coin.value as Field as Bytes<32>
+-  ]));
+-
+   // Route the freshly received contract output to the merchant in the same
+   // transaction. mt_index 0 marks a transient coin (an output immediately
+   // consumed by this circuit), so no later index discovery or custodial claim
+@@ -177,54 +163,11 @@ export circuit settleInvoice(
+     state: InvoiceState.PAID,
+     merchantCommitment: record.merchantCommitment,
+     expiry: record.expiry,
+-    paidCoinCommitment: paidCoinCommitment,
+-    payoutKeyCommitment: record.payoutKeyCommitment,
+-    claimed: true
++    payoutKeyCommitment: record.payoutKeyCommitment
+   });
+   receipts.insert(commitment, disclose(persistentHash<Vector<2, Bytes<32>>>([commitment, localPayerReceiptSecret()])));
+ }
+ 
+-witness heldCoin(): QualifiedShieldedCoinInfo;
+-
+-export circuit claimSettlement(
+-  amount: Uint<64>,
+-  tokenColor: Bytes<32>,
+-  expiry: Uint<64>,
+-  metadataHash: Bytes<32>,
+-  invoiceSecret: Bytes<32>,
+-  nonce: Bytes<32>
+-): [] {
+-  const merchantCommitment = disclose(merchantCommitmentOf(localMerchantSecret(), localMerchantNonce()));
+-  const commitment = disclose(invoiceCommitmentOf(
+-    merchantCommitment, amount, tokenColor, expiry, metadataHash, invoiceSecret, nonce
+-  ));
+-  assert(invoices.member(commitment), "No such invoice");
+-  const record = invoices.lookup(commitment);
+-  assert(record.state == InvoiceState.PAID, "Invoice is not paid");
+-  assert(record.merchantCommitment == merchantCommitment, "Not the authorized merchant");
+-  assert(!record.claimed, "Settlement for this invoice has already been claimed");
+-
+-  const coin = heldCoin();
+-  const offeredCoinCommitment = disclose(persistentHash<Vector<4, Bytes<32>>>([
+-    pad(32, "nivra:coin:v1"),
+-    coin.nonce,
+-    coin.color,
+-    coin.value as Field as Bytes<32>
+-  ]));
+-  assert(offeredCoinCommitment == record.paidCoinCommitment, "Offered coin does not match this invoice's settlement");
+-
+-  sendShielded(disclose(coin), left<ZswapCoinPublicKey, ContractAddress>(disclose(merchantPayoutKey())), disclose(amount as Uint<128>));
+-
+-  invoices.insert(commitment, InvoiceRecord {
+-    state: record.state,
+-    merchantCommitment: record.merchantCommitment,
+-    expiry: record.expiry,
+-    paidCoinCommitment: record.paidCoinCommitment,
+-    payoutKeyCommitment: record.payoutKeyCommitment,
+-    claimed: true
+-  });
+-}
+-
+ export circuit markExpired(
+   amount: Uint<64>,
+   merchantCommitment: Bytes<32>,
+@@ -240,13 +183,13 @@ export circuit markExpired(
+   assert(invoices.member(commitment), "No such invoice");
+   const record = invoices.lookup(commitment);
+   assert(record.state == InvoiceState.ACTIVE, "Invoice is not active");
+-  assert(blockTimeGte(disclose(expiry)), "Invoice has not expired yet");
++  assert(record.merchantCommitment == merchantCommitment, "Merchant commitment does not match invoice");
++  assert(record.expiry == expiry, "Expiry does not match invoice");
++  assert(blockTimeGte(record.expiry), "Invoice has not expired yet");
+   invoices.insert(commitment, InvoiceRecord {
+     state: InvoiceState.EXPIRED,
+     merchantCommitment: record.merchantCommitment,
+     expiry: record.expiry,
+-    paidCoinCommitment: record.paidCoinCommitment,
+-    payoutKeyCommitment: record.payoutKeyCommitment,
+-    claimed: record.claimed
++    payoutKeyCommitment: record.payoutKeyCommitment
+   });
+ }
+diff --git a/contracts/src/test/invoice_registry.test.ts b/contracts/src/test/invoice_registry.test.ts
+index aee58dd..619176c 100644
+--- a/contracts/src/test/invoice_registry.test.ts
++++ b/contracts/src/test/invoice_registry.test.ts
+@@ -114,7 +114,8 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
+   it("pays an active invoice via a real receiveShielded call and writes a receipt commitment", () => {
+     const merchantSecret = randomBytes(32);
+     const merchantNonce = randomBytes(32);
+-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
++    const merchantPayoutKey = randomBytes(32);
++    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce, 0, merchantPayoutKey);
+     const inv = sampleInvoice();
+     const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+     const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+@@ -127,8 +128,18 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
+ 
+     const ledger = sim.getLedger();
+     expect(ledger.invoices.lookup(commitment).state).toEqual(InvoiceState.PAID);
+-    expect(ledger.invoices.lookup(commitment).claimed).toBe(true);
+     expect(ledger.receipts.member(commitment)).toBe(true);
++
++    // The generated circuit must consume the transient contract output and
++    // route the second output to the exact payout key committed at creation.
++    const zswap = sim.circuitContext.currentZswapLocalState;
++    expect(zswap.inputs).toHaveLength(1);
++    expect(zswap.inputs[0]?.mt_index).toBe(0n);
++    expect(zswap.outputs).toHaveLength(2);
++    expect(zswap.outputs[1]?.recipient.is_left).toBe(true);
++    expect(zswap.outputs[1]?.recipient.left.bytes).toEqual(merchantPayoutKey);
++    expect(zswap.outputs[1]?.coinInfo.value).toBe(inv.amount);
++    expect(zswap.outputs[1]?.coinInfo.color).toEqual(inv.tokenColor);
+   });
+ 
+   it("rejects settlement when the offered coin's value does not match the invoice amount", () => {
+@@ -146,6 +157,21 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
+     ).toThrow("Coin value does not match invoice amount");
+   });
+ 
++  it("rejects settlement when the offered coin's token does not match the invoice", () => {
++    const sim = new InvoiceRegistrySimulator(randomBytes(32), randomBytes(32));
++    const inv = sampleInvoice();
++    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
++    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
++
++    sim.setIncomingPaymentCoin(
++      { nonce: randomBytes(32), color: randomBytes(32), value: inv.amount },
++      randomBytes(32),
++    );
++    expect(() =>
++      sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
++    ).toThrow("Wrong token for this invoice");
++  });
++
+   it("rejects a second settlement attempt against an already-PAID invoice (double payment)", () => {
+     const sim = new InvoiceRegistrySimulator(randomBytes(32), randomBytes(32));
+     const inv = sampleInvoice();
+@@ -191,10 +217,7 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
+     const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+     const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+     sim.setIncomingPaymentCoin({ nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount }, randomBytes(32));
+-    sim.setHeldCoin(
+-      { nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount, mt_index: 0n },
+-      randomBytes(32),
+-    );
++    sim.setMerchantPayoutKey(randomBytes(32));
+ 
+     expect(() =>
+       sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
+@@ -202,76 +225,6 @@ describe("InvoiceRegistry — SETTLEMENT", () => {
+   });
+ });
+ 
+-describe("InvoiceRegistry — ATOMIC PAYOUT", () => {
+-  const settle = (
+-    sim: InvoiceRegistrySimulator,
+-    merchantCommitment: Uint8Array,
+-    inv: ReturnType<typeof sampleInvoice>,
+-    coinNonce: Uint8Array,
+-  ) => {
+-    sim.setIncomingPaymentCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount }, randomBytes(32));
+-    sim.settleInvoice(merchantCommitment, inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+-  };
+-
+-  it("marks the shielded settlement claimed in the payment transaction", () => {
+-    const merchantSecret = randomBytes(32);
+-    const merchantNonce = randomBytes(32);
+-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
+-    const inv = sampleInvoice();
+-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+-    const coinNonce = randomBytes(32);
+-    settle(sim, merchantCommitment, inv, coinNonce);
+-
+-    expect(sim.getLedger().invoices.lookup(commitment).claimed).toBe(true);
+-  });
+-
+-  it("rejects a separate claim because atomic settlement already paid out", () => {
+-    const merchantSecret = randomBytes(32);
+-    const merchantNonce = randomBytes(32);
+-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
+-    const inv = sampleInvoice();
+-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+-    const coinNonce = randomBytes(32);
+-    settle(sim, merchantCommitment, inv, coinNonce);
+-    sim.setHeldCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
+-    expect(() =>
+-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
+-    ).toThrow("Settlement for this invoice has already been claimed");
+-  });
+-
+-  it("rejects claiming by someone without the merchant's secret", () => {
+-    const merchantSecret = randomBytes(32);
+-    const merchantNonce = randomBytes(32);
+-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
+-    const inv = sampleInvoice();
+-    const commitment = sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+-    const merchantCommitment = sim.getLedger().invoices.lookup(commitment).merchantCommitment;
+-    const coinNonce = randomBytes(32);
+-    settle(sim, merchantCommitment, inv, coinNonce);
+-
+-    sim.switchMerchant(randomBytes(32), randomBytes(32));
+-    sim.setHeldCoin({ nonce: coinNonce, color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
+-    expect(() =>
+-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
+-    ).toThrow("No such invoice");
+-  });
+-
+-  it("rejects claiming an invoice that hasn't been paid yet", () => {
+-    const merchantSecret = randomBytes(32);
+-    const merchantNonce = randomBytes(32);
+-    const sim = new InvoiceRegistrySimulator(merchantSecret, merchantNonce);
+-    const inv = sampleInvoice();
+-    sim.createInvoice(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce);
+-
+-    sim.setHeldCoin({ nonce: randomBytes(32), color: inv.tokenColor, value: inv.amount, mt_index: 0n }, randomBytes(32));
+-    expect(() =>
+-      sim.claimSettlement(inv.amount, inv.tokenColor, inv.expiry, inv.metadataHash, inv.invoiceSecret, inv.nonce),
+-    ).toThrow("Invoice is not paid");
+-  });
+-});
+-
+ describe("InvoiceRegistry — EXPIRY", () => {
+   it("rejects settlement after the invoice's deadline has passed", () => {
+     const sim = new InvoiceRegistrySimulator(randomBytes(32), randomBytes(32), 0);
+@@ -375,13 +328,11 @@ describe("InvoiceRegistry — PRIVACY", () => {
+     // is the real enforcement here — this assertion documents that guarantee in a way
+     // that fails loudly if the schema is ever widened to leak more.
+     expect(Object.keys(record).sort()).toEqual([
+-      "claimed",
+       "expiry",
+       "merchantCommitment",
+-      "paidCoinCommitment",
+       "payoutKeyCommitment",
+       "state",
+     ]);
+-    // Both *Commitment fields are hashes rather than the coin or payout key.
++    // Both public identity fields are hashes rather than secrets or payout keys.
+   });
+ });
+diff --git a/contracts/src/test/simulator.ts b/contracts/src/test/simulator.ts
+index 4e8327e..83a289b 100644
+--- a/contracts/src/test/simulator.ts
++++ b/contracts/src/test/simulator.ts
+@@ -21,7 +21,6 @@ import {
+   createNivraPrivateState,
+   witnesses,
+   type ShieldedCoin,
+-  type QualifiedShieldedCoin,
+ } from "../witnesses.js";
+ 
+ export class InvoiceRegistrySimulator {
+@@ -29,12 +28,17 @@ export class InvoiceRegistrySimulator {
+   readonly contractAddress = sampleContractAddress();
+   circuitContext: CircuitContext<NivraPrivateState>;
+ 
+-  constructor(merchantSecret: Uint8Array, merchantNonce: Uint8Array, time = 0) {
++  constructor(
++    merchantSecret: Uint8Array,
++    merchantNonce: Uint8Array,
++    time = 0,
++    merchantPayoutKey?: Uint8Array,
++  ) {
+     this.contract = new Contract<NivraPrivateState>(witnesses);
+     const { currentPrivateState, currentContractState, currentZswapLocalState } =
+       this.contract.initialState(
+         createConstructorContext(
+-          createNivraPrivateState(merchantSecret, merchantNonce),
++          createNivraPrivateState(merchantSecret, merchantNonce, merchantPayoutKey),
+           "0".repeat(64),
+         ),
+       );
+@@ -86,10 +90,9 @@ export class InvoiceRegistrySimulator {
+     };
+   }
+ 
+-  public setHeldCoin(coin: QualifiedShieldedCoin, merchantPayoutKey: Uint8Array) {
++  public setMerchantPayoutKey(merchantPayoutKey: Uint8Array) {
+     this.circuitContext.currentPrivateState = {
+       ...this.circuitContext.currentPrivateState,
+-      heldCoin: coin,
+       merchantPayoutKey,
+     };
+   }
+@@ -179,23 +182,4 @@ export class InvoiceRegistrySimulator {
+     return this.getLedger();
+   }
+ 
+-  public claimSettlement(
+-    amount: bigint,
+-    tokenColor: Uint8Array,
+-    expiry: bigint,
+-    metadataHash: Uint8Array,
+-    invoiceSecret: Uint8Array,
+-    nonce: Uint8Array,
+-  ): Ledger {
+-    this.circuitContext = this.contract.impureCircuits.claimSettlement(
+-      this.circuitContext,
+-      amount,
+-      tokenColor,
+-      expiry,
+-      metadataHash,
+-      invoiceSecret,
+-      nonce,
+-    ).context;
+-    return this.getLedger();
+-  }
+ }
+diff --git a/contracts/src/witnesses.ts b/contracts/src/witnesses.ts
+index 3df7ad4..f5695db 100644
+--- a/contracts/src/witnesses.ts
++++ b/contracts/src/witnesses.ts
+@@ -15,14 +15,11 @@ export type ShieldedCoin = {
+   value: bigint;
+ };
+ 
+-export type QualifiedShieldedCoin = ShieldedCoin & { mt_index: bigint };
+-
+ export type NivraPrivateState = {
+   readonly merchantSecret: Uint8Array;
+   readonly merchantNonce: Uint8Array;
+   readonly payerReceiptSecret: Uint8Array;
+   readonly incomingPaymentCoin: ShieldedCoin | undefined;
+-  readonly heldCoin: QualifiedShieldedCoin | undefined;
+   readonly merchantPayoutKey: Uint8Array | undefined;
+ };
+ 
+@@ -35,7 +32,6 @@ export const createNivraPrivateState = (
+   merchantNonce,
+   payerReceiptSecret: new Uint8Array(32),
+   incomingPaymentCoin: undefined,
+-  heldCoin: undefined,
+   // A zero key keeps pure simulator/commitment tests deterministic; browser
+   // merchant and checkout flows always pass the wallet's encoded real key.
+   merchantPayoutKey: merchantPayoutKey ?? new Uint8Array(32),
+@@ -45,7 +41,7 @@ const notConfigured = (witnessName: string) => (): never => {
+   throw new Error(
+     `${witnessName} witness was called without test/runtime state being configured first. ` +
+       "This is a real, informative failure, not a bug to silence: it means the caller " +
+-      "tried to exercise a circuit path (settlement or claim) that needs a real coin " +
++      "tried to exercise a settlement circuit path that needs a real coin " +
+       "or key supplied first.",
+   );
+ };
+@@ -79,13 +75,6 @@ export const witnesses = {
+     return [privateState, privateState.incomingPaymentCoin];
+   },
+ 
+-  heldCoin: ({
+-    privateState,
+-  }: WitnessContext<Ledger, NivraPrivateState>): [NivraPrivateState, QualifiedShieldedCoin] => {
+-    if (!privateState.heldCoin) return notConfigured("heldCoin")();
+-    return [privateState, privateState.heldCoin];
+-  },
+-
+   merchantPayoutKey: ({
+     privateState,
+   }: WitnessContext<Ledger, NivraPrivateState>): [NivraPrivateState, { bytes: Uint8Array }] => {
+diff --git a/docs/BUILD_STATUS.md b/docs/BUILD_STATUS.md
+index c8fefc8..92dbc46 100644
+--- a/docs/BUILD_STATUS.md
++++ b/docs/BUILD_STATUS.md
+@@ -17,17 +17,17 @@ reproducible test exists for it.
+ | Repository scaffold | DONE | directories + root package.json + LICENSE + README created; git initialized |
+ | Smallest valid Compact contract | DONE | `contracts/src/invoice_registry.compact` compiles cleanly with `compact compile` (exit 0) |
+ | Contract: invoice commitment registration (`createInvoice`) | TESTED | 3 tests: valid create, duplicate rejected, distinct nonces give distinct commitments |
+-| Contract: merchant authorization (`cancelInvoice`, `claimSettlement`) | TESTED | hash-preimage proof against `merchantCommitment`, not self-comparison; 3 cancel-auth tests + 2 claim-auth tests |
++| Contract: merchant authorization (`cancelInvoice`) | TESTED | hash-preimage proof against `merchantCommitment`, not self-comparison; cancellation authorization tests cover valid and invalid credentials |
+ | Contract: cancellation | TESTED | valid cancel, double-cancel rejected, cancelled invoice can't be settled |
+ | Contract: expiry (`blockTimeLt`/`blockTimeGte`, `markExpired`) | TESTED | 5 tests using `advanceTimeTo` on the simulator; confirmed real block-time semantics, not assumed |
+ | Contract: atomic settlement via `receiveShielded` + `sendShielded` | TESTED | matching value/color is received and routed as a transient coin to the merchant key committed at invoice creation; redirected-key, double-payment, cancellation, expiry, and nonexistent-invoice paths tested |
+-| Contract: payout binding | TESTED | `payoutKeyCommitment` prevents a modified payment link from redirecting funds; settlement sets `claimed = true` atomically |
++| Contract: payout binding | TESTED | `payoutKeyCommitment` prevents a modified payment link from redirecting funds; settlement pays out atomically |
+ | Receipt commitment | TESTED | covered by the settlement test asserting `receipts.member(commitment)` |
+-| Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 24/24 passing; run via `npm test --workspace=contracts` |
+-| SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | `computeMerchantCommitment`/`computeInvoiceCommitment`/`computeCoinCommitment`/`computeReceiptCommitment`; 4/4 tests cross-check output against the real compiled contract's own `createInvoice` result, byte-for-byte |
++| Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 21/21 passing; run via `npm test --workspace=contracts` |
++| SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | merchant/invoice/payout/receipt commitments are cross-checked against the compiled contract byte-for-byte |
+ | SDK: contract deployment/circuit-call layer | DONE | `packages/sdk/src/{common-types,providers,contract}.ts`; typechecks cleanly against the real installed `@midnight-ntwrk/midnight-js@4.1.1`/`compact-js@2.5.1` packages; not run end-to-end (no proof server/live network in this sandbox) — see below |
+-| Frontend (`apps/web`) | DONE | Next.js 16 + Tailwind app; all 6 routes (landing, dashboard, create, checkout, connect, receipt) verified rendering with zero console/page errors in a real headless browser (Playwright); see below |
+-| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | added to close the gap against `docs/WAVE1_SCOPE.md`'s named SDK surface; 21 SDK tests total, including cross-invoice receipt-replay |
++| Frontend (`apps/web`) | DONE | Next.js 16 + Tailwind app; all 7 product routes (landing, dashboard, invoice detail, create, checkout, connect, receipt) compile in the production build; core routes pass HTTP smoke tests; see below |
++| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 24 SDK tests total, including cross-invoice receipt replay and payout-key substitution |
+ | Security review (Phase 27) | TESTED | `docs/SECURITY_REVIEW.md`; one real Low-severity gap found and fixed (zero-amount invoices), one test-coverage gap closed (exact expiry boundary), full attack-category checklist with evidence |
+ 
+ ## Frontend (`apps/web`)
+@@ -145,7 +145,7 @@ build` → `dist/`, `exports`/`main`/`types` in `package.json`) specifically so
+ `@nivra/sdk` could depend on it as a normal npm workspace package rather than reaching
+ into another package's `src/`. Verified end-to-end from a clean checkout: `rm -rf
+ contracts/src/managed contracts/dist packages/sdk/dist && npm test` (root script now
+-runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 26/26 tests
++runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 45/45 tests
+ green.
+ 
+ ## SDK: contract deployment/circuit-call layer
+@@ -233,7 +233,7 @@ Tests cover atomic payout and malicious key substitution.
+ 1. **Buildathon target network** — assumed Preprod (see `docs/TOOLCHAIN.md`); no
+    Buildathon-specific rules page was available. Confirm and correct if wrong.
+ 2. **Coin-linkability implication for the privacy story** — `docs/PRIVACY_MODEL.md`
+-   now states plainly that the specific coin object used in settlement/claim is
++   now states plainly that the specific transient coin used in settlement is
+    linkable via its commitment, even though amount/token-color never touch the
+    ledger. Whether this is acceptable for the product's privacy claims, or whether
+    Wave 2 needs an additional mixing/relayer step, is a product decision, not a
+diff --git a/docs/INVARIANTS.md b/docs/INVARIANTS.md
+index cdd820c..b698f58 100644
+--- a/docs/INVARIANTS.md
++++ b/docs/INVARIANTS.md
+@@ -47,9 +47,8 @@ and defers to Midnight's own ledger for that guarantee.
+ `createInvoice` stores a domain-separated `payoutKeyCommitment`. `settleInvoice`
+ recomputes it from the key in the private payment link and rejects any mismatch,
+ then receives and spends the same coin as a transient output in one transaction.
+-The record is written with `claimed = true`; there is no custodial balance or later
+-index-discovery step. A separate `claimSettlement` call is rejected for these atomic
+-settlements. Tested by the "ATOMIC PAYOUT" suite and the redirected-key test.
++There is no custodial balance, later index-discovery step, or claim circuit. Tested
++by the settlement suite and redirected-key test.
+ 
+ ### INVARIANT 9 — An invoice cannot be marked EXPIRED before its deadline.
+ Enforced by: `markExpired`'s `assert(blockTimeGte(expiry))`, which reads the chain's
+diff --git a/docs/PRIVACY_MODEL.md b/docs/PRIVACY_MODEL.md
+index 0f0f4b3..56579f0 100644
+--- a/docs/PRIVACY_MODEL.md
++++ b/docs/PRIVACY_MODEL.md
+@@ -22,7 +22,7 @@ link), and is checked by recomputing the same hash client-side or in-circuit.
+ |---|---|---|
+ | `invoiceCommitment` (`persistentHash` of the full preimage; used as the `Map` key) | PUBLIC | A hash alone reveals nothing about its preimage; its presence is what "invoice exists" means |
+ | Invoice lifecycle state (`ACTIVE`/`PAID`/`CANCELLED`/`EXPIRED`) | PUBLIC | Global verifiability of settlement requires this to be checkable by anyone, including the customer before they pay |
+-| `merchantCommitment` (`persistentHash(DOMAIN_MERCHANT, merchantSecret, merchantNonce)`) | PUBLIC | Needed on-chain so `cancelInvoice`/`claimSettlement` can check authorization without ever learning `merchantSecret`; reveals nothing about the merchant's real-world identity |
++| `merchantCommitment` (`persistentHash(DOMAIN_MERCHANT, merchantSecret, merchantNonce)`) | PUBLIC | Needed on-chain so `cancelInvoice` can check authorization without ever learning `merchantSecret`; reveals nothing about the merchant's real-world identity |
+ | `expiry` (block-time deadline, `Uint<64>`) | PUBLIC | Required for in-circuit `blockTimeLt/Gte` enforcement; a bare deadline number is low-sensitivity on its own |
+ | `amount` | PRIVATE (preimage-only, never written to ledger) | The chain never needs to know the amount — it only needs `receiveShielded`'s value to match what the payer/merchant privately agreed, checked as a witness equality inside the circuit |
+ | `tokenColor` (which shielded token type) | PRIVATE (preimage-only) | Same reasoning as amount — which asset is being used is commercially sensitive |
+@@ -32,7 +32,7 @@ link), and is checked by recomputing the same hash client-side or in-circuit.
+ | `merchantSecret` | PRIVATE (witness-only, never leaves the merchant's client) | The actual authorization credential |
+ | Payer settlement/receipt secrets | PRIVATE (witness-only, never leaves the payer's client) | Used to derive `receiptCommitment`; only the payer can later prove they hold the matching receipt |
+ | `receiptCommitment` | PUBLIC | A hash only; presence proves *some* receipt was issued for this invoice, without revealing to whom or for how much |
+-| The Zswap shielded coin moved during settlement/claim | PRIVATE amount and owner; but the **specific coin object's commitment linkage is disclosed** | Verified directly against the compiler (2026-09-12): calling `receiveShielded`/`sendShielded` requires an explicit `disclose()` because it links the receive/spend event to that coin's commitment. Amount and token color still never appear in ledger state (they're never written there in the first place), but an observer who already knows which coin commitment was involved can correlate that specific transfer across the transaction graph. This is Zswap's own accounting boundary, not a gap this contract introduces or could remove. |
++| The transient Zswap shielded coin moved during settlement | PRIVATE amount and owner; but the **specific coin object's commitment linkage is disclosed** | Calling `receiveShielded`/`sendShielded` requires explicit `disclose()` because it links the receive/spend event to that coin's commitment. Amount and token color still never appear in contract ledger state. |
+ | "Invoice was paid before its deadline" | SELECTIVELY DISCLOSED (Wave 2) | Provable via a presentation proof over `receiptCommitment` + `expiry` without revealing amount or metadata |
+ | "This receipt corresponds to a legitimate settlement" | SELECTIVELY DISCLOSED (Wave 2) | Same mechanism |
+ | Merchant-authored invoice notes / line items | OFF-CHAIN ENCRYPTED (in Wave 1: embedded only in the encrypted payment-link payload; no server involved) | Never touches the chain at all; only its hash is folded into the commitment |
+diff --git a/docs/PRODUCT_SPEC.md b/docs/PRODUCT_SPEC.md
+index a2f10b1..f496a51 100644
+--- a/docs/PRODUCT_SPEC.md
++++ b/docs/PRODUCT_SPEC.md
+@@ -48,8 +48,8 @@ nothing else, unless the merchant or customer chooses to disclose more.
+ 
+ **Merchant** connects a Midnight wallet → creates an invoice (amount, currency,
+ optional private notes, expiry) → gets a shareable payment link + QR code → sees the
+-invoice's status (ACTIVE/PAID/CANCELLED/EXPIRED) in a dashboard → claims settled funds
+-→ can later show a customer's receipt is valid without revealing other customers'
++invoice's status (ACTIVE/PAID/CANCELLED/EXPIRED) in a dashboard → receives funds in
++the same atomic settlement → can later show a customer's receipt is valid without revealing other customers'
+ invoices.
+ 
+ **Customer** opens a payment link → the invoice's private details are decoded
+@@ -68,7 +68,7 @@ Merchant connects wallet → creates private invoice → contract registers comm
+ payment link/QR generated → customer opens checkout → invoice commitment verified
+ client-side → customer connects wallet → customer executes a real shielded payment →
+ contract verifies and flips invoice to PAID → private receipt commitment written →
+-merchant dashboard updates → merchant claims settled funds → receipt is verifiable.
++merchant dashboard updates after the atomic payout → receipt is verifiable.
+ 
+ ## Non-goals (Wave 1)
+ 
+diff --git a/docs/PROTOCOL_ARCHITECTURE.md b/docs/PROTOCOL_ARCHITECTURE.md
+index 17dda4a..a7ad585 100644
+--- a/docs/PROTOCOL_ARCHITECTURE.md
++++ b/docs/PROTOCOL_ARCHITECTURE.md
+@@ -113,28 +113,18 @@ owned Zswap shielded coin. In one circuit call, atomically:
+ 2. Assert `blockTimeLt(expiry)`.
+ 3. Assert the supplied coin's `color`/`value` match the preimage's `tokenColor`/
+    `amount`.
+-4. Call `receiveShielded(coin)` — the contract now custodies the real value; this is
+-   enforced by the Compact runtime's accounting, not by anything the caller asserts.
++4. Call `receiveShielded(coin)` and immediately consume that same output as a
++   transient qualified coin (`mt_index = 0`) with `sendShielded` to the payout key
++   whose commitment was fixed during invoice creation.
+ 5. Flip `state` to `PAID`.
+ 6. Write `receipts[invoiceCommitment] = persistentHash(DOMAIN_RECEIPT,
+    invoiceCommitment, payerReceiptSecret)`.
+ 
+-**Documented non-atomic boundary:** the merchant does not receive funds in this same
+-transaction. Settlement custodies funds in the contract; the merchant later calls
+-`claimSettlement` (proving `merchantSecret`) to move them out via `sendShielded` to
+-their own key. Payment-correctness and PAID-state are atomic; fund custody-to-merchant
+-is a second, separately-authorized step. This is a deliberate engineering choice, not
+-an oversight: it avoids requiring the payer to target the merchant's real shielded
+-spending key directly (the payer only ever needs `merchantCommitment`, a hash), which
+-keeps the merchant's spending key private from payers entirely.
+-
+-`claimSettlement` proves it is spending the *same* coin that settled *this specific*
+-invoice: `settleInvoice` writes `paidCoinCommitment` (a domain-separated hash of the
+-coin's `nonce`/`color`/`value`) into `InvoiceRecord`, and `claimSettlement` must
+-recompute the same hash from the coin it offers and match it, then sets a `claimed`
+-flag so it can only succeed once. This was a real gap found while writing contract
+-tests (a merchant could otherwise point `claimSettlement` at any coin the contract
+-held) — see `docs/BUILD_STATUS.md` and `docs/INVARIANTS.md` INVARIANT 8.
++The payment link carries the merchant's payout and encryption public keys. The
++contract stores only a domain-separated commitment to the payout key and rejects a
++substituted destination. Midnight.js receives the encryption-key mapping only to
++construct the merchant-readable output. The contract never retains a spendable coin,
++so there is no custodial withdrawal, coin-index discovery, or double-claim surface.
+ 
+ This mechanism, and the exact shape of `ShieldedCoinInfo`/`QualifiedShieldedCoinInfo`,
+ has been verified directly against the installed Compact compiler and
+diff --git a/docs/SECURITY_REVIEW.md b/docs/SECURITY_REVIEW.md
+index ba4a734..c4d16b5 100644
+--- a/docs/SECURITY_REVIEW.md
++++ b/docs/SECURITY_REVIEW.md
+@@ -18,7 +18,7 @@ or requires privileged access), **Low** (hygiene/defense-in-depth), **Informatio
+ |---|---|---|---|
+ | 1 | `createInvoice` accepted `amount == 0` | Low | **Fixed** |
+ | 2 | No test at the exact `time == expiry` boundary | Low (process gap, not a code bug — the code was already correct) | **Fixed** (test added) |
+-| 3 | `claimSettlement` had no binding between the claimed coin and the settling coin | High | **Fixed** (INVARIANT 8, prior session) |
++| 3 | Delayed settlement claims required unavailable contract-coin index recovery | High | **Fixed** by atomic transient payout (INVARIANT 8) |
+ | 4 | Circuit simulation cannot verify that a settlement coin is a real, previously-unspent Zswap UTXO | Informational | **Documented**, not fixable in this environment |
+ | 5 | All of a merchant's invoices are linkable to each other via the shared public `merchantCommitment` | Informational | **Documented** (already in `docs/PRIVACY_MODEL.md`, confirmed here) |
+ | 6 | Payment is permissionless (anyone with a link can pay any invoice) | Informational | **By design**, not a bug |
+@@ -131,7 +131,8 @@ For each category, what was checked and where the evidence lives:
+ 
+ ## What this review does not, and cannot, cover here
+ 
+-- Real proof generation and verification (no proof server in this sandbox).
++- Real proof generation and verification (no local proof server; the installed
++  browser wallet's delegated prover has not yet been approved for this DApp).
+ - Real network consensus/finality behavior, front-running by block producers, or
+   mempool-level transaction ordering attacks — these depend on the deployed
+   network's actual behavior, not this contract's logic.
+@@ -139,7 +140,7 @@ For each category, what was checked and where the evidence lives:
+   malicious wallet implementation — out of scope for a contract/SDK security review,
+   and partially addressed by design already (Nivra never receives spending keys;
+   see `docs/PROTOCOL_ARCHITECTURE.md`).
+-- Anything requiring a real Midnight wallet, which does not exist in this sandbox
+-  (see `docs/BUILD_STATUS.md`).
++- A real Preprod submission requiring the installed browser wallet to be unlocked,
++  connected, funded, and explicitly approved (see `docs/BUILD_STATUS.md`).
+ 
+ These are stated as open items, not silently assumed safe.
+diff --git a/docs/THREAT_MODEL.md b/docs/THREAT_MODEL.md
+index 03f78e8..ad3604e 100644
+--- a/docs/THREAT_MODEL.md
++++ b/docs/THREAT_MODEL.md
+@@ -15,8 +15,8 @@ Wave 1 — no API exists yet).
+ - **Settlement integrity** — an invoice becomes PAID only via a real, verified value
+   transfer of the correct amount/token into the contract, never by calling a "mark
+   paid" function on its own.
+-- **Merchant authorization** — cancellation and fund-claiming require proving
+-  knowledge of `merchantSecret` matching the stored `merchantCommitment`; no operation
++- **Merchant authorization** — cancellation requires proving knowledge of
++  `merchantSecret` matching the stored `merchantCommitment`; no operation
+   authorizes itself by simply re-supplying the public commitment.
+ - **Replay resistance** — the invoice state machine (not a bolted-on nullifier) makes
+   double-settlement structurally impossible: `settleInvoice` asserts `state ==
+@@ -28,9 +28,8 @@ Wave 1 — no API exists yet).
+   `docs/STATE_MACHINE.md`); the frontend has no authority over lifecycle state.
+ - **Confidentiality** — see `docs/PRIVACY_MODEL.md`.
+ - **Unlinkability** — partial; honestly scoped in `docs/PRIVACY_MODEL.md`.
+-- **Failure atomicity** — payment and PAID-state transition are atomic (single
+-  circuit call); merchant fund-claiming is a separate, later transaction by design —
+-  documented, not accidental (see Phase 7 discussion in `docs/PROTOCOL_ARCHITECTURE.md`).
++- **Failure atomicity** — payer debit, merchant payout, receipt registration, and the
++  PAID transition occur in one circuit call. A failed assertion commits none of them.
+ - **Resistance to unauthorized mutation** — every mutating circuit either requires no
+   special authorization (permissionless, like `markExpired`, where anyone triggering a
+   state-cleanup that only succeeds if the deadline has genuinely passed is harmless)
+@@ -100,15 +99,8 @@ Wave 1 — no API exists yet).
+   recomputed/checked before `receiveShielded` runs.
+ - **Publicly revealed:** the state transition to PAID and the new `receiptCommitment`
+   entry; nothing about the amount, token, or payer.
+-
+-### `claimSettlement`
+-- **Who can call it:** anyone can attempt it.
+-- **Authorization proof:** same `merchantSecret` proof as `cancelInvoice`.
+-- **Attacker calls it:** cannot succeed without the merchant's secret.
+-- **Double-claim:** the circuit must assert funds haven't already been claimed for
+-  this commitment (a boolean/claimed-flag in the invoice record, or the underlying
+-  Zswap coin simply no longer existing after the first claim) — this is a concrete
+-  implementation requirement flagged for the contract, not left implicit.
++- **Payout redirection:** rejected because the supplied payout key must match the
++  `payoutKeyCommitment` fixed during `createInvoice`.
+ 
+ ### `markExpired`
+ - **Who can call it:** anyone (permissionless by design — it's a public good, not a
+@@ -122,8 +114,8 @@ Wave 1 — no API exists yet).
+ 
+ ## Cross-cutting attacks
+ 
+-- **Compromised frontend:** cannot mint fake PAID states, cannot forge cancellations
+-  or claims (no secrets available to it beyond what the merchant/payer explicitly
++- **Compromised frontend:** cannot mint fake PAID states or forge cancellations
++  (no secrets available to it beyond what the merchant/payer explicitly
+   holds), can at worst show a user misleading UI — mitigated by clients recomputing
+   commitments and checking chain state directly rather than trusting any single UI's
+   claims.
+diff --git a/docs/TOOLCHAIN.md b/docs/TOOLCHAIN.md
+index a3f76de..e9c5502 100644
+--- a/docs/TOOLCHAIN.md
++++ b/docs/TOOLCHAIN.md
+@@ -189,7 +189,7 @@ official docs/example source, not assumed)
+   `sendImmediateShielded`, `createZswapOutput`; unshielded equivalents
+   `sendUnshielded`/`receiveUnshielded`; `ownPublicKey(): ZswapCoinPublicKey`.
+   **Verified directly against the compiler (2026-09-12), not assumed:** `compact
+-  compile` was run against a real `settleInvoice`/`claimSettlement` draft.
++  compile` was run against the real atomic `settleInvoice` circuit.
+   `ShieldedCoinInfo` has accessible `.color`/`.value` fields; `receiveShielded(coin)`
+   and `sendShielded(input, recipient, value)` both type-check with the signatures
+   above. Critically, the compiler's own disclosure analysis reports that calling
+@@ -199,7 +199,7 @@ official docs/example source, not assumed)
+   commitment** — both require an explicit `disclose()` at the call site to compile.
+   This is a real, load-bearing privacy fact for this protocol, not a hypothetical:
+   amount and token color stay off the public ledger (per `PRIVACY_MODEL.md`), but the
+-  specific coin object moved during settlement/claim is linkable on-chain by
++  specific coin object moved during atomic settlement is linkable on-chain by
+   construction of Zswap's own accounting. Documented precisely in
+   `docs/PRIVACY_MODEL.md` rather than glossed over.
+ - Token model: `NIGHT` is the public/unshielded governance and fee-generation token;
+diff --git a/docs/WAVE1_SCOPE.md b/docs/WAVE1_SCOPE.md
+index d840f31..e2a7aab 100644
+--- a/docs/WAVE1_SCOPE.md
++++ b/docs/WAVE1_SCOPE.md
+@@ -5,23 +5,23 @@
+ Merchant connects wallet → creates private invoice → contract registers commitment →
+ payment link/QR generated → customer opens checkout → client verifies invoice
+ commitment → customer connects wallet → customer executes a real shielded payment →
+-contract verifies settlement → invoice becomes PAID → private receipt generated →
+-merchant dashboard updates → merchant claims funds → receipt can be verified.
++contract verifies settlement and atomically routes funds to the merchant → invoice
++becomes PAID → private receipt generated → merchant dashboard updates → receipt can
++be verified.
+ 
+ ## In scope
+ 
+ - One Compact contract: `InvoiceRegistry` (`contracts/src/invoice_registry.compact`),
+   plus a small `types.compact`/`crypto.compact` if the main contract benefits from
+   splitting out shared struct/hash-domain definitions — not introduced speculatively.
+-- Circuits: `createInvoice`, `cancelInvoice`, `settleInvoice`, `claimSettlement`,
+-  `markExpired`.
++- Circuits: `createInvoice`, `cancelInvoice`, `settleInvoice`, `markExpired`.
+ - One supported shielded token type per invoice (`tokenColor` is a preimage field;
+   multiple *types* of token are not specially handled beyond that).
+ - `packages/sdk`: `connectWallet` (real, wraps the DApp Connector), `getInvoiceStatus`,
+   `verifyInvoicePaymentLink` (the `verifyInvoice` of this list, specialized to a
+   payment link), `verifyReceipt` (plus `receipt-link.ts` for a shareable,
+   self-verifying receipt URL) — all implemented and tested. `createInvoice`,
+-  `settleInvoice`, `cancelInvoice`, `claimSettlement` are satisfied by
++  `settleInvoice` and `cancelInvoice` are satisfied by
+   `deployedContract.callTx.<circuitName>(...)`, generic machinery from
+   `midnight-js-contracts` verified against the real installed package rather than
+   reimplemented as identically-named wrapper functions with no behavior of their
+diff --git a/packages/sdk/src/commitments.ts b/packages/sdk/src/commitments.ts
+index e9eac77..fd0377d 100644
+--- a/packages/sdk/src/commitments.ts
++++ b/packages/sdk/src/commitments.ts
+@@ -3,7 +3,7 @@
+ //
+ // TypeScript reimplementation of InvoiceRegistry.compact's commitment
+ // circuits (merchantCommitmentOf, invoiceCommitmentOf, and the coin/receipt
+-// commitments computed inline in settleInvoice/claimSettlement), built from
++// commitments used by InvoiceRegistry), built from
+ // the *real* `@midnight-ntwrk/compact-runtime` `persistentHash` builtin
+ // rather than a from-scratch hash implementation. This is deliberate: it is
+ // the same function the compiled circuit itself calls, so there is no risk
+@@ -55,16 +55,6 @@ export const computeInvoiceCommitment = (input: InvoiceCommitmentInput): Uint8Ar
+     input.nonce,
+   ]);
+ 
+-export type ShieldedCoinLike = {
+-  nonce: Uint8Array;
+-  color: Uint8Array;
+-  value: bigint;
+-};
+-
+-/** Mirrors the inline `paidCoinCommitment`/`offeredCoinCommitment` hash in settleInvoice/claimSettlement. */
+-export const computeCoinCommitment = (coin: ShieldedCoinLike): Uint8Array =>
+-  hashVector([domainTag("nivra:coin:v1"), coin.nonce, coin.color, uintToBytes32LE(coin.value, 16)]);
+-
+ /** Mirrors the payout-key commitment stored by createInvoice. */
+ export const computePayoutKeyCommitment = (encodedPayoutKey: Uint8Array): Uint8Array =>
+   hashVector([domainTag("nivra:payout:v1"), encodedPayoutKey]);
+diff --git a/packages/sdk/src/contract.ts b/packages/sdk/src/contract.ts
+index 2da9a19..cf30581 100644
+--- a/packages/sdk/src/contract.ts
++++ b/packages/sdk/src/contract.ts
+@@ -11,7 +11,7 @@
+ // `DeployedContract` types.
+ //
+ // docs/WAVE1_SCOPE.md's original SDK surface list also names `createInvoice`,
+-// `settleInvoice`, `cancelInvoice`, `claimSettlement` as SDK-level functions. That
++// `settleInvoice` and `cancelInvoice` as SDK-level functions. That
+ // list predates confirming the real midnight-js API shape; now that it's verified,
+ // `contract.callTx.<circuitName>(...)` already is that clean, typed, one-line
+ // interface, so wrapping it again in an identically-named free function would add a
+diff --git a/scripts/demo.mjs b/scripts/demo.mjs
+index e8c27d6..d7bfcba 100644
+--- a/scripts/demo.mjs
++++ b/scripts/demo.mjs
+@@ -22,6 +22,11 @@ import {
+   sampleContractAddress,
+ } from "@midnight-ntwrk/compact-runtime";
+ import { randomBytes as nodeRandomBytes } from "node:crypto";
++import {
++  encodeCoinPublicKey,
++  sampleCoinPublicKey,
++  sampleEncryptionPublicKey,
++} from "@midnight-ntwrk/midnight-js-protocol/ledger";
+ import { InvoiceRegistry, createNivraPrivateState, witnesses } from "@nivra/contracts";
+ import {
+   buildPaymentLinkPayload,
+@@ -38,10 +43,10 @@ const section = (title) => {
+   console.log(`\n${"=".repeat(70)}\n${title}\n${"=".repeat(70)}`);
+ };
+ 
+-const setUpContract = (merchantSecret, merchantNonce, time = 0) => {
++const setUpContract = (merchantSecret, merchantNonce, time = 0, payoutKey = new Uint8Array(32)) => {
+   const contract = new InvoiceRegistry.Contract(witnesses);
+   const { currentPrivateState, currentContractState, currentZswapLocalState } = contract.initialState(
+-    createConstructorContext(createNivraPrivateState(merchantSecret, merchantNonce), "0".repeat(64)),
++    createConstructorContext(createNivraPrivateState(merchantSecret, merchantNonce, payoutKey), "0".repeat(64)),
+   );
+   const contractAddress = sampleContractAddress();
+   const circuitContext = createCircuitContext(
+@@ -60,8 +65,15 @@ section("1. Merchant sets up a credential and deploys InvoiceRegistry");
+ 
+ const merchantSecret = randomBytes(32);
+ const merchantNonce = randomBytes(32);
++const merchantPayoutKey = sampleCoinPublicKey();
++const merchantEncryptionPublicKey = sampleEncryptionPublicKey();
+ console.log("Merchant secret / nonce generated locally — never leave the merchant's device.");
+-const { contract, contractAddress, circuitContext: ctx0 } = setUpContract(merchantSecret, merchantNonce);
++const { contract, contractAddress, circuitContext: ctx0 } = setUpContract(
++  merchantSecret,
++  merchantNonce,
++  0,
++  encodeCoinPublicKey(merchantPayoutKey),
++);
+ console.log(`(simulated) contract address: ${contractAddress}`);
+ 
+ section("2. Merchant creates a private invoice");
+@@ -93,7 +105,13 @@ console.log(`Public invoice commitment (this, and only this, goes on-chain): ${h
+ section("3. Merchant generates a payment link — no backend involved");
+ 
+ const merchantCommitment = computeMerchantCommitment(merchantSecret, merchantNonce);
+-const linkPayload = buildPaymentLinkPayload(contractAddress, merchantCommitment, invoice);
++const linkPayload = buildPaymentLinkPayload(
++  contractAddress,
++  merchantCommitment,
++  invoice,
++  merchantPayoutKey,
++  merchantEncryptionPublicKey,
++);
+ const paymentUrl = buildPaymentLinkUrl("https://pay.nivra.example/checkout", linkPayload);
+ console.log("Shareable payment link (private fields live only in the URL fragment):");
+ console.log(`  ${paymentUrl}`);
+@@ -132,31 +150,14 @@ const record = ledgerAfterSettle.invoices.lookup(invoiceCommitment);
+ console.log(`Invoice state is now: ${InvoiceRegistry.InvoiceState[record.state]}`);
+ console.log(`Receipt registered:   ${ledgerAfterSettle.receipts.member(invoiceCommitment)}`);
+ 
+-section("6. Merchant claims the settled funds — bound to this exact coin, this exact invoice");
+-
+-const merchantPayoutKey = randomBytes(32);
+-ctx2.currentPrivateState = {
+-  ...ctx2.currentPrivateState,
+-  heldCoin: { ...paymentCoin, mt_index: 0n },
+-  merchantPayoutKey,
+-};
+-const { context: ctx3 } = contract.impureCircuits.claimSettlement(
+-  ctx2,
+-  invoice.amount,
+-  invoice.tokenColor,
+-  invoice.expiry,
+-  invoice.metadataHash,
+-  invoice.invoiceSecret,
+-  invoice.nonce,
+-);
+-const ledgerAfterClaim = InvoiceRegistry.ledger(ctx3.currentQueryContext.state);
+-console.log(`Settlement claimed: ${ledgerAfterClaim.invoices.lookup(invoiceCommitment).claimed}`);
++section("6. Funds were routed atomically to the merchant's committed payout key");
++console.log("No contract balance or follow-up claim transaction remains.");
+ 
+ section("7. Attacker attempts to cancel the invoice without the merchant's secret");
+ 
+ const attackerSecret = randomBytes(32);
+ const attackerNonce = randomBytes(32);
+-const attackerCtx = { ...ctx3, currentPrivateState: { ...ctx3.currentPrivateState, merchantSecret: attackerSecret, merchantNonce: attackerNonce } };
++const attackerCtx = { ...ctx2, currentPrivateState: { ...ctx2.currentPrivateState, merchantSecret: attackerSecret, merchantNonce: attackerNonce } };
+ try {
+   contract.impureCircuits.cancelInvoice(
+     attackerCtx,
+@@ -210,4 +211,4 @@ const { context: expCtx3 } = contract2.impureCircuits.markExpired(
+ const expiredLedger = InvoiceRegistry.ledger(expCtx3.currentQueryContext.state);
+ console.log(`Second invoice state: ${InvoiceRegistry.InvoiceState[expiredLedger.invoices.lookup(commitment2).state]}`);
+ 
+-section("Done — full lifecycle exercised: create -> verify -> pay -> claim -> unauthorized-reject -> expire");
++section("Done — full lifecycle exercised: create -> verify -> atomic payout -> unauthorized-reject -> expire");

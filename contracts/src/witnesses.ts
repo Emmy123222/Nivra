@@ -15,14 +15,11 @@ export type ShieldedCoin = {
   value: bigint;
 };
 
-export type QualifiedShieldedCoin = ShieldedCoin & { mt_index: bigint };
-
 export type NivraPrivateState = {
   readonly merchantSecret: Uint8Array;
   readonly merchantNonce: Uint8Array;
   readonly payerReceiptSecret: Uint8Array;
   readonly incomingPaymentCoin: ShieldedCoin | undefined;
-  readonly heldCoin: QualifiedShieldedCoin | undefined;
   readonly merchantPayoutKey: Uint8Array | undefined;
 };
 
@@ -35,7 +32,6 @@ export const createNivraPrivateState = (
   merchantNonce,
   payerReceiptSecret: new Uint8Array(32),
   incomingPaymentCoin: undefined,
-  heldCoin: undefined,
   // A zero key keeps pure simulator/commitment tests deterministic; browser
   // merchant and checkout flows always pass the wallet's encoded real key.
   merchantPayoutKey: merchantPayoutKey ?? new Uint8Array(32),
@@ -45,7 +41,7 @@ const notConfigured = (witnessName: string) => (): never => {
   throw new Error(
     `${witnessName} witness was called without test/runtime state being configured first. ` +
       "This is a real, informative failure, not a bug to silence: it means the caller " +
-      "tried to exercise a circuit path (settlement or claim) that needs a real coin " +
+      "tried to exercise a settlement circuit path that needs a real coin " +
       "or key supplied first.",
   );
 };
@@ -77,13 +73,6 @@ export const witnesses = {
   }: WitnessContext<Ledger, NivraPrivateState>): [NivraPrivateState, ShieldedCoin] => {
     if (!privateState.incomingPaymentCoin) return notConfigured("incomingPaymentCoin")();
     return [privateState, privateState.incomingPaymentCoin];
-  },
-
-  heldCoin: ({
-    privateState,
-  }: WitnessContext<Ledger, NivraPrivateState>): [NivraPrivateState, QualifiedShieldedCoin] => {
-    if (!privateState.heldCoin) return notConfigured("heldCoin")();
-    return [privateState, privateState.heldCoin];
   },
 
   merchantPayoutKey: ({

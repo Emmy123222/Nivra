@@ -1,0 +1,195 @@
+Nivra contract audit verification — 2026-09-14 Africa/Lagos
+
+Baseline contract:
+f7b80fe5b62dfbb5be11e97f43a77052f05c14f0b8adba6711a52dc1a57c5db6  artifacts/contract-audit/invoice_registry.original.compact
+Modified contract:
+230aa98dcdbce9b0466dcdf47b273649cdbe80886bdb7566c474dfaef80043b7  contracts/src/invoice_registry.compact
+
+Authoritative clean-root test/build transcript:
+$ npm test
+
+> nivra@0.1.0 test
+> npm run build && npm run test --workspaces --if-present
+
+
+> nivra@0.1.0 build
+> npm run compact && npm run build --workspace=contracts && npm run build --workspace=@nivra/sdk --if-present
+
+
+> nivra@0.1.0 compact
+> npm run compact --workspace=contracts
+
+
+> @nivra/contracts@0.1.0 compact
+> compact compile src/invoice_registry.compact src/managed/invoice_registry
+
+Compiling 4 circuits:
+
+> @nivra/contracts@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed
+
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+
+> @nivra/contracts@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /home/emmanuel-ogheneovo/nivra/contracts
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/contract/index.js" points to missing source files
+ ✓ src/test/invoice_registry.test.ts (21 tests) 366ms
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  20:11:39
+   Duration  912ms (transform 194ms, setup 0ms, collect 227ms, tests 366ms, environment 0ms, prepare 108ms)
+
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+ ✓ src/test/commitments.test.ts (5 tests) 110ms
+ ✓ src/test/payment-link.test.ts (6 tests) 22ms
+ ✓ src/test/receipt-link.test.ts (3 tests) 121ms
+ ✓ src/test/contract.test.ts (10 tests) 345ms
+
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+   Start at  20:11:41
+   Duration  1.84s (transform 390ms, setup 0ms, collect 3.65s, tests 598ms, environment 1ms, prepare 397ms)
+
+exit=0
+$ npm run typecheck --workspace=apps/web
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+exit=0
+$ npm run lint --workspace=apps/web
+
+> web@0.1.0 lint
+> eslint
+
+exit=0
+$ npm run build --workspace=apps/web
+
+> web@0.1.0 prebuild
+> node scripts/copy-zk-assets.mjs
+
+Copied ZK assets: /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/keys -> /home/emmanuel-ogheneovo/nivra/apps/web/public/keys, /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /home/emmanuel-ogheneovo/nivra/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build
+
+▲ Next.js 16.3.5 (Turbopack)
+✓ Running next.config.ts took 24ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 1997ms
+  Running TypeScript ...
+  Finished TypeScript in 3.6s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9)
+  Generating static pages using 7 workers (4/9)
+  Generating static pages using 7 workers (6/9)
+✓ Generating static pages using 7 workers (9/9) in 733ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+exit=0
+$ git diff --check
+exit=0
+
+Current end-to-end simulation:
+$ node scripts/demo.mjs
+
+======================================================================
+1. Merchant sets up a credential and deploys InvoiceRegistry
+======================================================================
+Merchant secret / nonce generated locally — never leave the merchant's device.
+(simulated) contract address: afd4c4f6772709ff932504c08ed4359735e847c411d0e0485e94e5bcc1fb783b
+
+======================================================================
+2. Merchant creates a private invoice
+======================================================================
+Private invoice fields (amount, tokenColor, metadataHash, invoiceSecret, nonce):
+  amount:       250000 (never touches the public ledger)
+  expiry:       block-time deadline 999999
+  metadataHash: 6709ee13711300baed1370790a64c7354fe59622f163c50db9af88f466d91e49
+Public invoice commitment (this, and only this, goes on-chain): 5fc9fda9635d63bcfb66880f0bbedf353ae3d019ed4e88d9004fa44f6f374d76
+
+======================================================================
+3. Merchant generates a payment link — no backend involved
+======================================================================
+Shareable payment link (private fields live only in the URL fragment):
+  https://pay.nivra.example/checkout#eyJ2ZXJzaW9uIjoxLCJjb250cmFjdEFkZHJlc3MiOiJhZmQ0YzRmNjc3MjcwOWZmOTMyNTA0YzA4ZWQ0MzU5NzM1ZTg0N2M0MTFkMGUwNDg1ZTk0ZTViY2MxZmI3ODNiIiwibWVyY2hhbnRDb21taXRtZW50IjoiMmViYjcxZDlmNGE2Zjg1NzA0NTEyZTI2NTVmMWRiZDljZTU0YzFlNDU2NWU5NDZjYWFiM2Q5YzFkNGMwODYzZiIsImFtb3VudCI6IjI1MDAwMCIsInRva2VuQ29sb3IiOiJkNDQzMDdiY2MzYTJkNTNkOGI2NmFlN2ZkOWFhZTgyNWQwNjY4OGI4NjM4MjAyNTNkMjQ2NTg2ZGNhZGViNjhhIiwiZXhwaXJ5IjoiOTk5OTk5IiwibWV0YWRhdGFIYXNoIjoiNjcwOWVlMTM3MTEzMDBiYWVkMTM3MDc5MGE2NGM3MzU0ZmU1OTYyMmYxNjNjNTBkYjlhZjg4ZjQ2NmQ5MWU0OSIsImludm9pY2VTZWNyZXQiOiIzNDg1MTRiYjllOTA0NDkyZTA1ODdkMGFjYWM4MDdlMWU1Mjk3NGYxNTU2NWEwNDhmMjkxMWMxMjJlNmY1ODM5Iiwibm9uY2UiOiJjNjg4MDgyYmFiMjMyZWI2MmI5OGExMWQ3ODMyYmU3MDExNmIwNjNhMmQxNGFhYjkzNDI1ZTFkM2ExMWYzZTg4IiwibWVyY2hhbnRQYXlvdXRLZXkiOiJkNThmYWI2NGY3ZmU5ZmJmZDUwMzZlZGVhN2UzYTQyNTE3N2U4OTE1ZTNjMzhlMjM1NmI3Y2VhYWQwYTJiNjMzIiwibWVyY2hhbnRFbmNyeXB0aW9uUHVibGljS2V5IjoiYzdmYjMxNTFkNWJkMTRmMDhmODIzZDAxNzJlNzJiOTM0MmQ5YmIxYzI1ZDg5MTYyNjkxZTI3OWRlMmYzYTE4MCJ9
+
+======================================================================
+4. Customer opens the link and verifies it against the chain BEFORE paying
+======================================================================
+Recomputed commitment from link:        5fc9fda9635d63bcfb66880f0bbedf353ae3d019ed4e88d9004fa44f6f374d76
+Matches the commitment the merchant made: true
+Present in the public ledger:             true
+
+======================================================================
+5. Customer pays: a real Zswap coin is presented and verified in-circuit
+======================================================================
+Invoice state is now: PAID
+Receipt registered:   true
+
+======================================================================
+6. Funds were routed atomically to the merchant's committed payout key
+======================================================================
+No contract balance or follow-up claim transaction remains.
+
+======================================================================
+7. Attacker attempts to cancel the invoice without the merchant's secret
+======================================================================
+REJECTED, as required: "failed assert: No such invoice"
+
+======================================================================
+8. A second invoice, left unpaid, expires on schedule
+======================================================================
+Second invoice state: EXPIRED
+
+======================================================================
+Done — full lifecycle exercised: create -> verify -> atomic payout -> unauthorized-reject -> expire
+======================================================================
+exit=0
+$ git diff --check
+exit=0
+
+Production HTTP smoke test:
+/                                        http=200 bytes=51680
+/dashboard                               http=200 bytes=22214
+/checkout                                http=200 bytes=9504
+/receipt                                 http=200 bytes=9502
+/keys/settleInvoice.prover               http=200 bytes=19541301
+/zkir/settleInvoice.bzkir                http=200 bytes=1447
+/keys/claimSettlement.prover             http=404 bytes=10869
+
+Rollback execution (isolated baseline worktree):
+rollback verified: /tmp/nivra-rollback-final.YnT8Fr/contracts/src/invoice_registry.compact restored to f7b80fe5b62dfbb5be11e97f43a77052f05c14f0b8adba6711a52dc1a57c5db6
+rollback_tree_diff=clean
+exit=0

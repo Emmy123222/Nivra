@@ -11,7 +11,7 @@
 // package.json `predev`/`prebuild`). Not committed — public/keys and
 // public/zkir are gitignored, same as contracts/src/managed/.
 
-import { cpSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,6 +30,11 @@ if (!existsSync(keysSrc) || !existsSync(zkirSrc)) {
 
 const keysDest = join(here, "..", "public", "keys");
 const zkirDest = join(here, "..", "public", "zkir");
+
+// The circuit set can shrink between compiler runs. Remove the previous copy
+// first so deleted circuits are not still advertised or shipped by the web app.
+rmSync(keysDest, { recursive: true, force: true });
+rmSync(zkirDest, { recursive: true, force: true });
 mkdirSync(keysDest, { recursive: true });
 mkdirSync(zkirDest, { recursive: true });
 

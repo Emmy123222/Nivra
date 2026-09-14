@@ -48,8 +48,8 @@ nothing else, unless the merchant or customer chooses to disclose more.
 
 **Merchant** connects a Midnight wallet → creates an invoice (amount, currency,
 optional private notes, expiry) → gets a shareable payment link + QR code → sees the
-invoice's status (ACTIVE/PAID/CANCELLED/EXPIRED) in a dashboard → claims settled funds
-→ can later show a customer's receipt is valid without revealing other customers'
+invoice's status (ACTIVE/PAID/CANCELLED/EXPIRED) in a dashboard → receives funds in
+the same atomic settlement → can later show a customer's receipt is valid without revealing other customers'
 invoices.
 
 **Customer** opens a payment link → the invoice's private details are decoded
@@ -68,7 +68,7 @@ Merchant connects wallet → creates private invoice → contract registers comm
 payment link/QR generated → customer opens checkout → invoice commitment verified
 client-side → customer connects wallet → customer executes a real shielded payment →
 contract verifies and flips invoice to PAID → private receipt commitment written →
-merchant dashboard updates → merchant claims settled funds → receipt is verifiable.
+merchant dashboard updates after the atomic payout → receipt is verifiable.
 
 ## Non-goals (Wave 1)
 

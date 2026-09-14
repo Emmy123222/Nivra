@@ -21,7 +21,6 @@ import {
   createNivraPrivateState,
   witnesses,
   type ShieldedCoin,
-  type QualifiedShieldedCoin,
 } from "../witnesses.js";
 
 export class InvoiceRegistrySimulator {
@@ -29,12 +28,17 @@ export class InvoiceRegistrySimulator {
   readonly contractAddress = sampleContractAddress();
   circuitContext: CircuitContext<NivraPrivateState>;
 
-  constructor(merchantSecret: Uint8Array, merchantNonce: Uint8Array, time = 0) {
+  constructor(
+    merchantSecret: Uint8Array,
+    merchantNonce: Uint8Array,
+    time = 0,
+    merchantPayoutKey?: Uint8Array,
+  ) {
     this.contract = new Contract<NivraPrivateState>(witnesses);
     const { currentPrivateState, currentContractState, currentZswapLocalState } =
       this.contract.initialState(
         createConstructorContext(
-          createNivraPrivateState(merchantSecret, merchantNonce),
+          createNivraPrivateState(merchantSecret, merchantNonce, merchantPayoutKey),
           "0".repeat(64),
         ),
       );
@@ -86,10 +90,9 @@ export class InvoiceRegistrySimulator {
     };
   }
 
-  public setHeldCoin(coin: QualifiedShieldedCoin, merchantPayoutKey: Uint8Array) {
+  public setMerchantPayoutKey(merchantPayoutKey: Uint8Array) {
     this.circuitContext.currentPrivateState = {
       ...this.circuitContext.currentPrivateState,
-      heldCoin: coin,
       merchantPayoutKey,
     };
   }
@@ -179,23 +182,4 @@ export class InvoiceRegistrySimulator {
     return this.getLedger();
   }
 
-  public claimSettlement(
-    amount: bigint,
-    tokenColor: Uint8Array,
-    expiry: bigint,
-    metadataHash: Uint8Array,
-    invoiceSecret: Uint8Array,
-    nonce: Uint8Array,
-  ): Ledger {
-    this.circuitContext = this.contract.impureCircuits.claimSettlement(
-      this.circuitContext,
-      amount,
-      tokenColor,
-      expiry,
-      metadataHash,
-      invoiceSecret,
-      nonce,
-    ).context;
-    return this.getLedger();
-  }
 }

@@ -22,6 +22,11 @@ import {
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
 import { randomBytes as nodeRandomBytes } from "node:crypto";
+import {
+  encodeCoinPublicKey,
+  sampleCoinPublicKey,
+  sampleEncryptionPublicKey,
+} from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { InvoiceRegistry, createNivraPrivateState, witnesses } from "@nivra/contracts";
 import {
   buildPaymentLinkPayload,
@@ -38,10 +43,10 @@ const section = (title) => {
   console.log(`\n${"=".repeat(70)}\n${title}\n${"=".repeat(70)}`);
 };
 
-const setUpContract = (merchantSecret, merchantNonce, time = 0) => {
+const setUpContract = (merchantSecret, merchantNonce, time = 0, payoutKey = new Uint8Array(32)) => {
   const contract = new InvoiceRegistry.Contract(witnesses);
   const { currentPrivateState, currentContractState, currentZswapLocalState } = contract.initialState(
-    createConstructorContext(createNivraPrivateState(merchantSecret, merchantNonce), "0".repeat(64)),
+    createConstructorContext(createNivraPrivateState(merchantSecret, merchantNonce, payoutKey), "0".repeat(64)),
   );
   const contractAddress = sampleContractAddress();
   const circuitContext = createCircuitContext(
@@ -60,8 +65,15 @@ section("1. Merchant sets up a credential and deploys InvoiceRegistry");
 
 const merchantSecret = randomBytes(32);
 const merchantNonce = randomBytes(32);
+const merchantPayoutKey = sampleCoinPublicKey();
+const merchantEncryptionPublicKey = sampleEncryptionPublicKey();
 console.log("Merchant secret / nonce generated locally — never leave the merchant's device.");
-const { contract, contractAddress, circuitContext: ctx0 } = setUpContract(merchantSecret, merchantNonce);
+const { contract, contractAddress, circuitContext: ctx0 } = setUpContract(
+  merchantSecret,
+  merchantNonce,
+  0,
+  encodeCoinPublicKey(merchantPayoutKey),
+);
 console.log(`(simulated) contract address: ${contractAddress}`);
 
 section("2. Merchant creates a private invoice");
@@ -93,7 +105,13 @@ console.log(`Public invoice commitment (this, and only this, goes on-chain): ${h
 section("3. Merchant generates a payment link — no backend involved");
 
 const merchantCommitment = computeMerchantCommitment(merchantSecret, merchantNonce);
-const linkPayload = buildPaymentLinkPayload(contractAddress, merchantCommitment, invoice);
+const linkPayload = buildPaymentLinkPayload(
+  contractAddress,
+  merchantCommitment,
+  invoice,
+  merchantPayoutKey,
+  merchantEncryptionPublicKey,
+);
 const paymentUrl = buildPaymentLinkUrl("https://pay.nivra.example/checkout", linkPayload);
 console.log("Shareable payment link (private fields live only in the URL fragment):");
 console.log(`  ${paymentUrl}`);
@@ -132,31 +150,14 @@ const record = ledgerAfterSettle.invoices.lookup(invoiceCommitment);
 console.log(`Invoice state is now: ${InvoiceRegistry.InvoiceState[record.state]}`);
 console.log(`Receipt registered:   ${ledgerAfterSettle.receipts.member(invoiceCommitment)}`);
 
-section("6. Merchant claims the settled funds — bound to this exact coin, this exact invoice");
-
-const merchantPayoutKey = randomBytes(32);
-ctx2.currentPrivateState = {
-  ...ctx2.currentPrivateState,
-  heldCoin: { ...paymentCoin, mt_index: 0n },
-  merchantPayoutKey,
-};
-const { context: ctx3 } = contract.impureCircuits.claimSettlement(
-  ctx2,
-  invoice.amount,
-  invoice.tokenColor,
-  invoice.expiry,
-  invoice.metadataHash,
-  invoice.invoiceSecret,
-  invoice.nonce,
-);
-const ledgerAfterClaim = InvoiceRegistry.ledger(ctx3.currentQueryContext.state);
-console.log(`Settlement claimed: ${ledgerAfterClaim.invoices.lookup(invoiceCommitment).claimed}`);
+section("6. Funds were routed atomically to the merchant's committed payout key");
+console.log("No contract balance or follow-up claim transaction remains.");
 
 section("7. Attacker attempts to cancel the invoice without the merchant's secret");
 
 const attackerSecret = randomBytes(32);
 const attackerNonce = randomBytes(32);
-const attackerCtx = { ...ctx3, currentPrivateState: { ...ctx3.currentPrivateState, merchantSecret: attackerSecret, merchantNonce: attackerNonce } };
+const attackerCtx = { ...ctx2, currentPrivateState: { ...ctx2.currentPrivateState, merchantSecret: attackerSecret, merchantNonce: attackerNonce } };
 try {
   contract.impureCircuits.cancelInvoice(
     attackerCtx,
@@ -210,4 +211,4 @@ const { context: expCtx3 } = contract2.impureCircuits.markExpired(
 const expiredLedger = InvoiceRegistry.ledger(expCtx3.currentQueryContext.state);
 console.log(`Second invoice state: ${InvoiceRegistry.InvoiceState[expiredLedger.invoices.lookup(commitment2).state]}`);
 
-section("Done — full lifecycle exercised: create -> verify -> pay -> claim -> unauthorized-reject -> expire");
+section("Done — full lifecycle exercised: create -> verify -> atomic payout -> unauthorized-reject -> expire");

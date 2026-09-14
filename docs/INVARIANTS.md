@@ -47,9 +47,8 @@ and defers to Midnight's own ledger for that guarantee.
 `createInvoice` stores a domain-separated `payoutKeyCommitment`. `settleInvoice`
 recomputes it from the key in the private payment link and rejects any mismatch,
 then receives and spends the same coin as a transient output in one transaction.
-The record is written with `claimed = true`; there is no custodial balance or later
-index-discovery step. A separate `claimSettlement` call is rejected for these atomic
-settlements. Tested by the "ATOMIC PAYOUT" suite and the redirected-key test.
+There is no custodial balance, later index-discovery step, or claim circuit. Tested
+by the settlement suite and redirected-key test.
 
 ### INVARIANT 9 — An invoice cannot be marked EXPIRED before its deadline.
 Enforced by: `markExpired`'s `assert(blockTimeGte(expiry))`, which reads the chain's

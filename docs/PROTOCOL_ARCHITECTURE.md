@@ -113,28 +113,18 @@ owned Zswap shielded coin. In one circuit call, atomically:
 2. Assert `blockTimeLt(expiry)`.
 3. Assert the supplied coin's `color`/`value` match the preimage's `tokenColor`/
    `amount`.
-4. Call `receiveShielded(coin)` — the contract now custodies the real value; this is
-   enforced by the Compact runtime's accounting, not by anything the caller asserts.
+4. Call `receiveShielded(coin)` and immediately consume that same output as a
+   transient qualified coin (`mt_index = 0`) with `sendShielded` to the payout key
+   whose commitment was fixed during invoice creation.
 5. Flip `state` to `PAID`.
 6. Write `receipts[invoiceCommitment] = persistentHash(DOMAIN_RECEIPT,
    invoiceCommitment, payerReceiptSecret)`.
 
-**Documented non-atomic boundary:** the merchant does not receive funds in this same
-transaction. Settlement custodies funds in the contract; the merchant later calls
-`claimSettlement` (proving `merchantSecret`) to move them out via `sendShielded` to
-their own key. Payment-correctness and PAID-state are atomic; fund custody-to-merchant
-is a second, separately-authorized step. This is a deliberate engineering choice, not
-an oversight: it avoids requiring the payer to target the merchant's real shielded
-spending key directly (the payer only ever needs `merchantCommitment`, a hash), which
-keeps the merchant's spending key private from payers entirely.
-
-`claimSettlement` proves it is spending the *same* coin that settled *this specific*
-invoice: `settleInvoice` writes `paidCoinCommitment` (a domain-separated hash of the
-coin's `nonce`/`color`/`value`) into `InvoiceRecord`, and `claimSettlement` must
-recompute the same hash from the coin it offers and match it, then sets a `claimed`
-flag so it can only succeed once. This was a real gap found while writing contract
-tests (a merchant could otherwise point `claimSettlement` at any coin the contract
-held) — see `docs/BUILD_STATUS.md` and `docs/INVARIANTS.md` INVARIANT 8.
+The payment link carries the merchant's payout and encryption public keys. The
+contract stores only a domain-separated commitment to the payout key and rejects a
+substituted destination. Midnight.js receives the encryption-key mapping only to
+construct the merchant-readable output. The contract never retains a spendable coin,
+so there is no custodial withdrawal, coin-index discovery, or double-claim surface.
 
 This mechanism, and the exact shape of `ShieldedCoinInfo`/`QualifiedShieldedCoinInfo`,
 has been verified directly against the installed Compact compiler and

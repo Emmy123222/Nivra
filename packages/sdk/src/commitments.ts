@@ -3,7 +3,7 @@
 //
 // TypeScript reimplementation of InvoiceRegistry.compact's commitment
 // circuits (merchantCommitmentOf, invoiceCommitmentOf, and the coin/receipt
-// commitments computed inline in settleInvoice/claimSettlement), built from
+// commitments used by InvoiceRegistry), built from
 // the *real* `@midnight-ntwrk/compact-runtime` `persistentHash` builtin
 // rather than a from-scratch hash implementation. This is deliberate: it is
 // the same function the compiled circuit itself calls, so there is no risk
@@ -54,16 +54,6 @@ export const computeInvoiceCommitment = (input: InvoiceCommitmentInput): Uint8Ar
     input.invoiceSecret,
     input.nonce,
   ]);
-
-export type ShieldedCoinLike = {
-  nonce: Uint8Array;
-  color: Uint8Array;
-  value: bigint;
-};
-
-/** Mirrors the inline `paidCoinCommitment`/`offeredCoinCommitment` hash in settleInvoice/claimSettlement. */
-export const computeCoinCommitment = (coin: ShieldedCoinLike): Uint8Array =>
-  hashVector([domainTag("nivra:coin:v1"), coin.nonce, coin.color, uintToBytes32LE(coin.value, 16)]);
 
 /** Mirrors the payout-key commitment stored by createInvoice. */
 export const computePayoutKeyCommitment = (encodedPayoutKey: Uint8Array): Uint8Array =>
