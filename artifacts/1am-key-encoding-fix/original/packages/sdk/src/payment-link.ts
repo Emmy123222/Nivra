@@ -39,7 +39,7 @@ import {
 } from "./commitments.js";
 import { getInvoiceRegistryLedger } from "./contract.js";
 import type { InvoiceRegistryProviders } from "./common-types.js";
-import { decodeShieldedCoinPublicKey } from "./wallet.js";
+import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 
 export type PaymentLinkPayload = {
   readonly version: 1;
@@ -190,7 +190,7 @@ export const verifyInvoicePaymentLink = async (
     return { commitment, onChain: false };
   }
   const record = ledger.invoices.lookup(commitment);
-  const expectedPayout = computePayoutKeyCommitment(decodeShieldedCoinPublicKey(payload.merchantPayoutKey));
+  const expectedPayout = computePayoutKeyCommitment(encodeCoinPublicKey(payload.merchantPayoutKey));
   return {
     commitment,
     onChain: bytesToHex(record.payoutKeyCommitment) === bytesToHex(expectedPayout),

@@ -1,0 +1,8 @@
+5b40dc0a57d038385097903afeabcd1a39aa21e2c98046a0bea78fbcff4d023f  packages/sdk/package.json
+dac18421b74f9bfa41875044b51db476efdbe079c4fe0f98e7f1ab1277cdd19b  packages/sdk/src/wallet.ts
+04f82f033fb0ac56c12005350ee8fa2786be0f5700bf2204ae390cc74c3bfda0  packages/sdk/src/payment-link.ts
+ab8121b60170a2ad038f930d8bf7a9e6f9ddd10e7f35d84ea33817835a58ff70  packages/sdk/src/contract.ts
+2b82f8889ffc5c66e13d35bbb819541a95aabca1cdb41710822fde519e8707d5  apps/web/src/lib/wallet-context.tsx
+38ecb25c613c1a3b9ce6d23cc5cb388bd463c0511fa6303d998800ce9b26dc38  tests/e2e/browser-e2e.mjs
+packages/sdk/src/test/wallet.test.ts: ABSENT before this change
+3b879c35095c62721ca0ea8f66dd4f659dcf150adf3cada5efcafc4b06dcc13c  artifacts/1am-key-encoding-fix/original/package-lock.json

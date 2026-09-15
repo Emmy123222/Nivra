@@ -13,36 +13,8 @@
 // barrel alongside commitments/payment-link, not in `./node.ts`.
 
 import type { ConnectedAPI, InitialAPI } from "@midnight-ntwrk/dapp-connector-api";
-import { bech32m } from "@scure/base";
-import { hexToBytes } from "./encoding.js";
 
 const COMPATIBLE_API_MAJOR = 4;
-
-/**
- * Converts the connector's shielded coin public key into Compact's 32-byte
- * representation. DApp Connector v4 specifies Bech32m (`mn_shield-cpk_…`),
- * while older mocks and wallets may still expose the underlying 64 hex digits.
- */
-export const decodeShieldedCoinPublicKey = (key: string): Uint8Array => {
-  const value = key.trim();
-  const rawHex = /^(?:0x)?([0-9a-fA-F]{64})$/.exec(value)?.[1];
-  if (rawHex) return hexToBytes(rawHex);
-
-  try {
-    const decoded = bech32m.decodeToBytes(value, false);
-    const [midnightPrefix, keyType] = decoded.prefix.toLowerCase().split("_");
-    if (midnightPrefix !== "mn" || keyType !== "shield-cpk") {
-      throw new Error(`expected mn_shield-cpk, received ${decoded.prefix}`);
-    }
-    if (decoded.bytes.length !== 32) {
-      throw new Error(`expected 32 bytes, received ${decoded.bytes.length}`);
-    }
-    return Uint8Array.from(decoded.bytes);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Wallet returned an invalid shielded coin public key (${detail}).`);
-  }
-};
 
 const isCompatible = (wallet: unknown): wallet is InitialAPI => {
   if (!wallet || typeof wallet !== "object" || !("apiVersion" in wallet)) return false;

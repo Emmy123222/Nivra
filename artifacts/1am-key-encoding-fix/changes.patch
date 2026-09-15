@@ -1,0 +1,201 @@
+diff --git a/apps/web/src/lib/wallet-context.tsx b/apps/web/src/lib/wallet-context.tsx
+index 00f5a92..04c2909 100644
+--- a/apps/web/src/lib/wallet-context.tsx
++++ b/apps/web/src/lib/wallet-context.tsx
+@@ -8,9 +8,9 @@
+ 
+ import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+ import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
+-import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
+ import { createNivraPrivateState, type NivraPrivateState, InvoiceRegistry } from "@nivra/contracts";
+ import {
++  decodeShieldedCoinPublicKey,
+   deployInvoiceRegistry,
+   joinInvoiceRegistry,
+   getInvoiceRegistryLedger,
+@@ -93,7 +93,7 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
+           createNivraPrivateState(
+             merchantSecret,
+             merchantNonce,
+-            encodeCoinPublicKey(addresses.shieldedCoinPublicKey),
++            decodeShieldedCoinPublicKey(addresses.shieldedCoinPublicKey),
+           ),
+         );
+         setContract(restored);
+@@ -117,7 +117,7 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
+       const privateState: NivraPrivateState = createNivraPrivateState(
+         merchantSecret,
+         merchantNonce,
+-        encodeCoinPublicKey(addresses.shieldedCoinPublicKey),
++        decodeShieldedCoinPublicKey(addresses.shieldedCoinPublicKey),
+       );
+       const existingAddress = getStoredContractAddress();
+ 
+diff --git a/package-lock.json b/package-lock.json
+index d347204..3c7be4f 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -9264,7 +9264,8 @@
+         "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
+         "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
+         "@midnight-ntwrk/midnight-js-node-zk-config-provider": "^4.1.1",
+-        "@nivra/contracts": "*"
++        "@nivra/contracts": "*",
++        "@scure/base": "^2.4.0"
+       },
+       "devDependencies": {
+         "@types/node": "^22.20.2",
+diff --git a/packages/sdk/package.json b/packages/sdk/package.json
+index 271808f..35d5bb0 100644
+--- a/packages/sdk/package.json
++++ b/packages/sdk/package.json
+@@ -33,6 +33,7 @@
+     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
+     "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
+     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "^4.1.1",
++    "@scure/base": "^2.4.0",
+     "@nivra/contracts": "*"
+   },
+   "devDependencies": {
+diff --git a/packages/sdk/src/contract.ts b/packages/sdk/src/contract.ts
+index cf30581..30a13c4 100644
+--- a/packages/sdk/src/contract.ts
++++ b/packages/sdk/src/contract.ts
+@@ -34,7 +34,6 @@ import {
+   withContractScopedTransaction,
+   type TransactionContext,
+ } from "@midnight-ntwrk/midnight-js/contracts";
+-import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
+ import { InvoiceRegistry, witnesses, type NivraPrivateState } from "@nivra/contracts";
+ import { createNivraPrivateState } from "@nivra/contracts";
+ import {
+@@ -49,6 +48,7 @@ import { computeReceiptCommitment } from "./commitments.js";
+ import { bytesToHex } from "./encoding.js";
+ import { hexToBytes } from "./encoding.js";
+ import type { PaymentLinkPayload } from "./payment-link.js";
++import { decodeShieldedCoinPublicKey } from "./wallet.js";
+ 
+ /**
+  * Binds the compiled InvoiceRegistry contract to its real witness
+@@ -110,7 +110,7 @@ export const settleInvoiceFromPaymentLink = async (
+     ...createNivraPrivateState(
+       new Uint8Array(32),
+       new Uint8Array(32),
+-      encodeCoinPublicKey(payload.merchantPayoutKey),
++      decodeShieldedCoinPublicKey(payload.merchantPayoutKey),
+     ),
+     payerReceiptSecret,
+     incomingPaymentCoin: {
+diff --git a/packages/sdk/src/payment-link.ts b/packages/sdk/src/payment-link.ts
+index fef00d0..5dad24d 100644
+--- a/packages/sdk/src/payment-link.ts
++++ b/packages/sdk/src/payment-link.ts
+@@ -39,7 +39,7 @@ import {
+ } from "./commitments.js";
+ import { getInvoiceRegistryLedger } from "./contract.js";
+ import type { InvoiceRegistryProviders } from "./common-types.js";
+-import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
++import { decodeShieldedCoinPublicKey } from "./wallet.js";
+ 
+ export type PaymentLinkPayload = {
+   readonly version: 1;
+@@ -190,7 +190,7 @@ export const verifyInvoicePaymentLink = async (
+     return { commitment, onChain: false };
+   }
+   const record = ledger.invoices.lookup(commitment);
+-  const expectedPayout = computePayoutKeyCommitment(encodeCoinPublicKey(payload.merchantPayoutKey));
++  const expectedPayout = computePayoutKeyCommitment(decodeShieldedCoinPublicKey(payload.merchantPayoutKey));
+   return {
+     commitment,
+     onChain: bytesToHex(record.payoutKeyCommitment) === bytesToHex(expectedPayout),
+diff --git a/packages/sdk/src/wallet.ts b/packages/sdk/src/wallet.ts
+index aeee92d..8ed533f 100644
+--- a/packages/sdk/src/wallet.ts
++++ b/packages/sdk/src/wallet.ts
+@@ -13,9 +13,37 @@
+ // barrel alongside commitments/payment-link, not in `./node.ts`.
+ 
+ import type { ConnectedAPI, InitialAPI } from "@midnight-ntwrk/dapp-connector-api";
++import { bech32m } from "@scure/base";
++import { hexToBytes } from "./encoding.js";
+ 
+ const COMPATIBLE_API_MAJOR = 4;
+ 
++/**
++ * Converts the connector's shielded coin public key into Compact's 32-byte
++ * representation. DApp Connector v4 specifies Bech32m (`mn_shield-cpk_…`),
++ * while older mocks and wallets may still expose the underlying 64 hex digits.
++ */
++export const decodeShieldedCoinPublicKey = (key: string): Uint8Array => {
++  const value = key.trim();
++  const rawHex = /^(?:0x)?([0-9a-fA-F]{64})$/.exec(value)?.[1];
++  if (rawHex) return hexToBytes(rawHex);
++
++  try {
++    const decoded = bech32m.decodeToBytes(value, false);
++    const [midnightPrefix, keyType] = decoded.prefix.toLowerCase().split("_");
++    if (midnightPrefix !== "mn" || keyType !== "shield-cpk") {
++      throw new Error(`expected mn_shield-cpk, received ${decoded.prefix}`);
++    }
++    if (decoded.bytes.length !== 32) {
++      throw new Error(`expected 32 bytes, received ${decoded.bytes.length}`);
++    }
++    return Uint8Array.from(decoded.bytes);
++  } catch (error) {
++    const detail = error instanceof Error ? error.message : String(error);
++    throw new Error(`Wallet returned an invalid shielded coin public key (${detail}).`);
++  }
++};
++
+ const isCompatible = (wallet: unknown): wallet is InitialAPI => {
+   if (!wallet || typeof wallet !== "object" || !("apiVersion" in wallet)) return false;
+   const version = (wallet as { apiVersion: unknown }).apiVersion;
+diff --git a/tests/e2e/browser-e2e.mjs b/tests/e2e/browser-e2e.mjs
+index da75cdd..fd4a2be 100644
+--- a/tests/e2e/browser-e2e.mjs
++++ b/tests/e2e/browser-e2e.mjs
+@@ -125,7 +125,9 @@ try {
+       // connected methods without this newer advisory helper.
+       getShieldedAddresses: async () => ({
+         shieldedAddress: "mock-shielded-address",
+-        shieldedCoinPublicKey: "db82335934aba196cabb9d66b685fe57f9191f918344de8d106455bfb5a66249",
++        // Match 1AM and the DApp Connector v4 specification: wallet keys are
++        // Bech32m values rather than raw hexadecimal strings.
++        shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
+         shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
+       }),
+       getShieldedBalances: async () => ({ ["22".repeat(32)]: BigInt(1_000_000) }),
+@@ -179,6 +181,7 @@ try {
+   const setupSummary = setupFailure.slice(0, 240);
+   check("registry deployment errors are shown in the UI", setupFailure.startsWith("Registry setup stopped:"), setupSummary);
+   check("ledger WebAssembly initializes before deployment", !setupFailure.includes("__wbindgen"), setupSummary);
++  check("1AM Bech32m payout key reaches transaction construction", !setupFailure.includes("Invalid character 'm'"), setupSummary);
+   await connectedPage.getByRole("link", { name: /New invoice/ }).click();
+   await connectedPage.getByRole("heading", { name: "Create invoice" }).waitFor();
+   check("connected navigation opens invoice form", await connectedPage.getByRole("heading", { name: "Create invoice" }).isVisible());
+--- a/packages/sdk/src/test/wallet.test.ts
++++ b/packages/sdk/src/test/wallet.test.ts
+@@ -0,0 +1,23 @@
++import { describe, expect, it } from "vitest";
++import { bech32m } from "@scure/base";
++import { decodeShieldedCoinPublicKey } from "../wallet.js";
++
++describe("decodeShieldedCoinPublicKey", () => {
++  const bytes = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
++
++  it("decodes a DApp Connector v4 Bech32m coin public key", () => {
++    const key = bech32m.encode("mn_shield-cpk_preprod", bech32m.toWords(bytes), false);
++    expect(decodeShieldedCoinPublicKey(key)).toEqual(bytes);
++  });
++
++  it("keeps compatibility with raw hex keys", () => {
++    const key = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
++    expect(decodeShieldedCoinPublicKey(key)).toEqual(bytes);
++    expect(decodeShieldedCoinPublicKey(`0x${key}`)).toEqual(bytes);
++  });
++
++  it("reports a clear error for a different Bech32m key type", () => {
++    const key = bech32m.encode("mn_shield-epk_preprod", bech32m.toWords(bytes), false);
++    expect(() => decodeShieldedCoinPublicKey(key)).toThrow(/expected mn_shield-cpk/);
++  });
++});

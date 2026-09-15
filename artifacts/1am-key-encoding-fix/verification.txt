@@ -1,0 +1,32 @@
+1AM shielded coin public-key compatibility verification
+
+Cause confirmed:
+- DApp Connector v4 returns Bech32m wallet keys (`mn_shield-cpk_...`).
+- The previous implementation passed that value to a raw-hex ledger encoder,
+  producing `Invalid character 'm' at position 0`.
+
+Modified behavior:
+- Bech32m shielded coin public keys decode to their exact 32-byte Compact value.
+- Legacy 64-digit raw-hex keys remain supported.
+- The conversion is used during registry deploy/restore, link verification, and settlement.
+
+Exact commands and literal results:
+- `npm run test --workspace=@nivra/sdk` -> `Test Files 5 passed (5)`; `Tests 30 passed (30)`; exit 0.
+- `npm run typecheck --workspace=@nivra/sdk` -> exit 0.
+- `npm run typecheck --workspace=web` -> exit 0.
+- `npm run build --workspace=web` -> `Compiled successfully`; 9 routes generated; exit 0.
+- `BASE_URL=http://127.0.0.1:3100 E2E_OUTPUT_DIR=artifacts/1am-key-encoding-fix/e2e npm run test:e2e`
+  -> `32 browser checks passed`; exit 0.
+- Browser assertion: `1AM Bech32m payout key reaches transaction construction` -> PASS.
+
+Full literal outputs:
+- `sdk-test.log`
+- `sdk-typecheck.log`
+- `web-typecheck.log`
+- `web-build.log`
+- `browser-e2e.log`
+- `e2e/browser-report.json`
+
+Rollback verification command: artifacts/1am-key-encoding-fix/rollback.sh TEMP_ROOT
+Literal output: restored 1AM key-encoding baseline under /tmp/tmp.59OQFUMvUj
+Exit status: 0

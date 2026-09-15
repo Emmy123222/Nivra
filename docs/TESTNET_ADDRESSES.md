@@ -1,0 +1,15 @@
+# Testnet Addresses
+
+Public development identifiers for the Midnight Preprod environment.
+
+## Midnight Wallet dApp
+
+- Network: `preprod`
+- Contract address: `bdcbebba96eab76e0db2a1310dc6b1c105069d8fa000de331291ad8c8dc4c69f`
+
+## Mint7
+
+- Shielded token color: `0xe41a0d35c72ef2acb6eb4384611725b5c906a59829b3e8fb4dff3f292718ef5e`
+
+The wallet-dApp contract address is for **Join Existing Contract** in the local
+Midnight Wallet dApp. Nivra deploys and stores its own InvoiceRegistry address.

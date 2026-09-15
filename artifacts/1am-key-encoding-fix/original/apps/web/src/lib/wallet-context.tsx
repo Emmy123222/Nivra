@@ -8,9 +8,9 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
+import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { createNivraPrivateState, type NivraPrivateState, InvoiceRegistry } from "@nivra/contracts";
 import {
-  decodeShieldedCoinPublicKey,
   deployInvoiceRegistry,
   joinInvoiceRegistry,
   getInvoiceRegistryLedger,
@@ -93,7 +93,7 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
           createNivraPrivateState(
             merchantSecret,
             merchantNonce,
-            decodeShieldedCoinPublicKey(addresses.shieldedCoinPublicKey),
+            encodeCoinPublicKey(addresses.shieldedCoinPublicKey),
           ),
         );
         setContract(restored);
@@ -117,7 +117,7 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
       const privateState: NivraPrivateState = createNivraPrivateState(
         merchantSecret,
         merchantNonce,
-        decodeShieldedCoinPublicKey(addresses.shieldedCoinPublicKey),
+        encodeCoinPublicKey(addresses.shieldedCoinPublicKey),
       );
       const existingAddress = getStoredContractAddress();
 

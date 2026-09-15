@@ -1,0 +1,11 @@
+Verification command:
+grep exact contract and token records; sha256sum docs/TESTNET_ADDRESSES.md
+Input contract: bdcbebba96eab76e0db2a1310dc6b1c105069d8fa000de331291ad8c8dc4c69f
+Input token: 0xe41a0d35c72ef2acb6eb4384611725b5c906a59829b3e8fb4dff3f292718ef5e
+Literal output:
+6732ba3ca7a83c3d1eeb27bf0a62ecb3c2a7aeeeb113ec8748bcab9efa57934e  docs/TESTNET_ADDRESSES.md
+Exit status: 0
+
+Rollback verification command: artifacts/testnet-addresses-save/rollback.sh TEMP_ROOT
+Literal rollback output: moved /tmp/tmp.y3nRqZ37Yq/docs/TESTNET_ADDRESSES.md to /tmp/tmp.y3nRqZ37Yq/docs/TESTNET_ADDRESSES.md.rolled-back
+Rollback exit status: 0

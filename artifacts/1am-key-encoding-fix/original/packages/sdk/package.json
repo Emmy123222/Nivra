@@ -33,7 +33,6 @@
     "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "^4.1.1",
     "@midnight-ntwrk/midnight-js-level-private-state-provider": "^4.1.1",
     "@midnight-ntwrk/midnight-js-node-zk-config-provider": "^4.1.1",
-    "@scure/base": "^2.4.0",
     "@nivra/contracts": "*"
   },
   "devDependencies": {

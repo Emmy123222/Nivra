@@ -125,9 +125,7 @@ try {
       // connected methods without this newer advisory helper.
       getShieldedAddresses: async () => ({
         shieldedAddress: "mock-shielded-address",
-        // Match 1AM and the DApp Connector v4 specification: wallet keys are
-        // Bech32m values rather than raw hexadecimal strings.
-        shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
+        shieldedCoinPublicKey: "db82335934aba196cabb9d66b685fe57f9191f918344de8d106455bfb5a66249",
         shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
       }),
       getShieldedBalances: async () => ({ ["22".repeat(32)]: BigInt(1_000_000) }),
@@ -181,7 +179,6 @@ try {
   const setupSummary = setupFailure.slice(0, 240);
   check("registry deployment errors are shown in the UI", setupFailure.startsWith("Registry setup stopped:"), setupSummary);
   check("ledger WebAssembly initializes before deployment", !setupFailure.includes("__wbindgen"), setupSummary);
-  check("1AM Bech32m payout key reaches transaction construction", !setupFailure.includes("Invalid character 'm'"), setupSummary);
   await connectedPage.getByRole("link", { name: /New invoice/ }).click();
   await connectedPage.getByRole("heading", { name: "Create invoice" }).waitFor();
   check("connected navigation opens invoice form", await connectedPage.getByRole("heading", { name: "Create invoice" }).isVisible());

@@ -34,6 +34,7 @@ import {
   withContractScopedTransaction,
   type TransactionContext,
 } from "@midnight-ntwrk/midnight-js/contracts";
+import { encodeCoinPublicKey } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { InvoiceRegistry, witnesses, type NivraPrivateState } from "@nivra/contracts";
 import { createNivraPrivateState } from "@nivra/contracts";
 import {
@@ -48,7 +49,6 @@ import { computeReceiptCommitment } from "./commitments.js";
 import { bytesToHex } from "./encoding.js";
 import { hexToBytes } from "./encoding.js";
 import type { PaymentLinkPayload } from "./payment-link.js";
-import { decodeShieldedCoinPublicKey } from "./wallet.js";
 
 /**
  * Binds the compiled InvoiceRegistry contract to its real witness
@@ -110,7 +110,7 @@ export const settleInvoiceFromPaymentLink = async (
     ...createNivraPrivateState(
       new Uint8Array(32),
       new Uint8Array(32),
-      decodeShieldedCoinPublicKey(payload.merchantPayoutKey),
+      encodeCoinPublicKey(payload.merchantPayoutKey),
     ),
     payerReceiptSecret,
     incomingPaymentCoin: {
