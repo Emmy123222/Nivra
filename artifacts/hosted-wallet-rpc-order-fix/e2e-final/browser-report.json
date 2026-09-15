@@ -1,0 +1,179 @@
+{
+  "generatedAt": "2026-09-15T11:23:08.993Z",
+  "baseUrl": "http://localhost:3001",
+  "passed": 34,
+  "failed": 0,
+  "browserErrors": [],
+  "results": [
+    {
+      "name": "landing responds",
+      "result": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "landing hero renders",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "landing primary CTA routes to dashboard",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "dashboard responds",
+      "result": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "dashboard marks sample records as preview",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "missing wallet message is accurate",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "dashboard paid filter works",
+      "result": "PASS",
+      "detail": "rows=2"
+    },
+    {
+      "name": "create route responds",
+      "result": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "create route blocks disconnected use",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "connect route responds",
+      "result": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "connect route explains missing connector",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "empty checkout is handled",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "valid payment fragment renders",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "checkout shows exact amount",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "unverified invoice is never presented as payable",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "checkout reparses changed fragments",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "checkout rejects semantic field corruption",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "valid receipt fragment waits for chain verification",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "receipt reparses changed fragments",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "current settle prover is served",
+      "result": "PASS",
+      "detail": "HTTP 200"
+    },
+    {
+      "name": "removed circuit asset is not shipped",
+      "result": "PASS",
+      "detail": "HTTP 404"
+    },
+    {
+      "name": "dashboard has no page-level mobile overflow",
+      "result": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "Lace-compatible connector works without hintUsage",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "browser loads compiled ZK assets",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "connected merchant is offered registry deployment",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "registry deployment errors are shown in the UI",
+      "result": "PASS",
+      "detail": "Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����'"
+    },
+    {
+      "name": "ledger WebAssembly initializes before deployment",
+      "result": "PASS",
+      "detail": "Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����'"
+    },
+    {
+      "name": "1AM Bech32m payout key reaches transaction construction",
+      "result": "PASS",
+      "detail": "Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����'"
+    },
+    {
+      "name": "connected navigation opens invoice form",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "invoice form reads shielded wallet balances",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "invoice form rejects an invalid amount before deployment",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "hosted 1AM connection tolerates missing wallet configuration",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "hosted wallet RPCs are ordered and advisory hint failures do not abort connection",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "browser emitted no uncaught errors",
+      "result": "PASS",
+      "detail": ""
+    }
+  ]
+}

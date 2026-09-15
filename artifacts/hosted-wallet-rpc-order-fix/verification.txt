@@ -1,0 +1,67 @@
+Hosted wallet RPC ordering fix — verification record
+
+Observed hosted baseline
+URL: https://web-phi-eight-78.vercel.app/dashboard
+Served bundle contained the previous provider sequence:
+  Promise.all(getShieldedAddresses(), getConfiguration(), getConnectionStatus())
+User-visible result:
+  Cannot read properties of undefined (reading 'networkId')
+
+Changed branch/behavior
+- Advisory hintUsage failure no longer aborts a valid connector session.
+- Connector RPCs now execute in this order:
+  getConnectionStatus -> getConfiguration -> setNetworkId -> getShieldedAddresses.
+- A missing getConfiguration result still uses the selected Preprod/Preview endpoints.
+
+Baseline integrity
+Command: sha256sum apps/web/src/lib/providers.ts tests/e2e/browser-e2e.mjs
+Exit status: 0
+Literal output:
+aa7e6d2a11d01f19d7a507132e35c201a247877159349ef4fb6e201484bffe65  apps/web/src/lib/providers.ts
+ef68239904f7149d20be27e69a6ba260a9f44e869eb03855717a7aaae5b02d3c  tests/e2e/browser-e2e.mjs
+
+Modified integrity
+Command: sha256sum apps/web/src/lib/providers.ts tests/e2e/browser-e2e.mjs
+Exit status: 0
+Literal output:
+0c209a23abb24819c612b0fe804406ed882d1963a4386305b90928963278f19a  apps/web/src/lib/providers.ts
+f695908140cc89df917f3cbe15987698b41e6e4cea46e00902a134a30da7f94d  tests/e2e/browser-e2e.mjs
+
+Type check
+Command: npm run typecheck --workspace=web
+Input: modified working tree
+Exit status: 0
+Literal result: tsc --noEmit completed with no diagnostics.
+Full output: typecheck.log
+
+Production build
+Command: npm run build --workspace=web
+Input: modified working tree and tracked Compact ZK assets
+Exit status: 0
+Literal results:
+  Compiled successfully in 5.1s
+  Generating static pages using 7 workers (9/9)
+  Routes: /, /checkout, /connect, /dashboard, /dashboard/create,
+          /dashboard/invoices/[commitment], /receipt
+Full output: build.log
+
+Browser E2E
+Command: BASE_URL=http://localhost:3001 E2E_OUTPUT_DIR=artifacts/hosted-wallet-rpc-order-fix/e2e-final npm run test:e2e
+Input: optimized production server, configless connector mock whose hintUsage throws the reported networkId TypeError and whose getShieldedAddresses rejects calls made before getConfiguration.
+Exit status: 0
+Literal results:
+  PASS hosted 1AM connection tolerates missing wallet configuration
+  PASS hosted wallet RPCs are ordered and advisory hint failures do not abort connection
+  PASS browser emitted no uncaught errors
+  34 browser checks passed
+Full output: browser-e2e.log
+Machine report: e2e-final/browser-report.json
+
+Rollback
+Command: artifacts/hosted-wallet-rpc-order-fix/rollback.sh
+Exit status: 0
+Literal output:
+  apps/web/src/lib/providers.ts: OK
+  tests/e2e/browser-e2e.mjs: OK
+The patch was reapplied and both modified hashes then returned OK.
+Full output: rollback-verification.txt

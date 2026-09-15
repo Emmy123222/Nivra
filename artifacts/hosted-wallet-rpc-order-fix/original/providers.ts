@@ -51,19 +51,14 @@ export const buildBrowserProviders = async (
     hintUsage?: ConnectedAPI["hintUsage"];
   }).hintUsage;
   if (typeof hintUsage === "function") {
-    try {
-      await hintUsage.call(connectedApi, [
-        "getConfiguration",
-        "getShieldedAddresses",
-        "getShieldedBalances",
-        "getProvingProvider",
-        "balanceUnsealedTransaction",
-        "submitTransaction",
-      ]);
-    } catch {
-      // Permission hints are advisory. Some hosted-origin connector sessions
-      // throw here before their network configuration has been hydrated.
-    }
+    await hintUsage.call(connectedApi, [
+      "getConfiguration",
+      "getShieldedAddresses",
+      "getShieldedBalances",
+      "getProvingProvider",
+      "balanceUnsealedTransaction",
+      "submitTransaction",
+    ]);
   }
   // Some released connectors (observed with 1AM on a hosted HTTPS origin)
   // resolve getConfiguration() with `undefined` despite the v4 type contract.
@@ -78,14 +73,15 @@ export const buildBrowserProviders = async (
       return undefined;
     }
   };
-  // Keep connector RPC calls ordered. Browser extensions transport these calls
-  // over one remote channel, and some wallets race configuration hydration when
-  // getConfiguration/getConnectionStatus/getShieldedAddresses are started together.
-  const connectionStatus = await connectedApi.getConnectionStatus();
-  if (!connectionStatus || connectionStatus.status !== "connected") {
+  const [shieldedAddresses, walletConfig, connectionStatus] = await Promise.all([
+    connectedApi.getShieldedAddresses(),
+    readWalletConfiguration(),
+    connectedApi.getConnectionStatus(),
+  ]);
+
+  if (connectionStatus.status !== "connected") {
     throw new Error("Wallet connection was lost. Reconnect the wallet and try again.");
   }
-  const walletConfig = await readWalletConfiguration();
   const walletNetworkId = walletConfig?.networkId ?? connectionStatus.networkId;
   if (walletNetworkId !== network.networkId) {
     throw new Error(
@@ -93,7 +89,6 @@ export const buildBrowserProviders = async (
     );
   }
   setNetworkId(walletNetworkId);
-  const shieldedAddresses = await connectedApi.getShieldedAddresses();
 
   // Wallet configuration is authoritative for the user's indexer/prover choices.
   // The local network config remains a fallback for wallets that omit the deprecated

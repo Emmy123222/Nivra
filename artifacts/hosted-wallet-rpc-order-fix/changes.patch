@@ -1,0 +1,123 @@
+diff --git a/apps/web/src/lib/providers.ts b/apps/web/src/lib/providers.ts
+index e22be17..26cb789 100644
+--- a/apps/web/src/lib/providers.ts
++++ b/apps/web/src/lib/providers.ts
+@@ -51,14 +51,19 @@ export const buildBrowserProviders = async (
+     hintUsage?: ConnectedAPI["hintUsage"];
+   }).hintUsage;
+   if (typeof hintUsage === "function") {
+-    await hintUsage.call(connectedApi, [
+-      "getConfiguration",
+-      "getShieldedAddresses",
+-      "getShieldedBalances",
+-      "getProvingProvider",
+-      "balanceUnsealedTransaction",
+-      "submitTransaction",
+-    ]);
++    try {
++      await hintUsage.call(connectedApi, [
++        "getConfiguration",
++        "getShieldedAddresses",
++        "getShieldedBalances",
++        "getProvingProvider",
++        "balanceUnsealedTransaction",
++        "submitTransaction",
++      ]);
++    } catch {
++      // Permission hints are advisory. Some hosted-origin connector sessions
++      // throw here before their network configuration has been hydrated.
++    }
+   }
+   // Some released connectors (observed with 1AM on a hosted HTTPS origin)
+   // resolve getConfiguration() with `undefined` despite the v4 type contract.
+@@ -73,15 +78,14 @@ export const buildBrowserProviders = async (
+       return undefined;
+     }
+   };
+-  const [shieldedAddresses, walletConfig, connectionStatus] = await Promise.all([
+-    connectedApi.getShieldedAddresses(),
+-    readWalletConfiguration(),
+-    connectedApi.getConnectionStatus(),
+-  ]);
+-
+-  if (connectionStatus.status !== "connected") {
++  // Keep connector RPC calls ordered. Browser extensions transport these calls
++  // over one remote channel, and some wallets race configuration hydration when
++  // getConfiguration/getConnectionStatus/getShieldedAddresses are started together.
++  const connectionStatus = await connectedApi.getConnectionStatus();
++  if (!connectionStatus || connectionStatus.status !== "connected") {
+     throw new Error("Wallet connection was lost. Reconnect the wallet and try again.");
+   }
++  const walletConfig = await readWalletConfiguration();
+   const walletNetworkId = walletConfig?.networkId ?? connectionStatus.networkId;
+   if (walletNetworkId !== network.networkId) {
+     throw new Error(
+@@ -89,6 +93,7 @@ export const buildBrowserProviders = async (
+     );
+   }
+   setNetworkId(walletNetworkId);
++  const shieldedAddresses = await connectedApi.getShieldedAddresses();
+ 
+   // Wallet configuration is authoritative for the user's indexer/prover choices.
+   // The local network config remains a fallback for wallets that omit the deprecated
+diff --git a/tests/e2e/browser-e2e.mjs b/tests/e2e/browser-e2e.mjs
+index aa69c92..33028f2 100644
+--- a/tests/e2e/browser-e2e.mjs
++++ b/tests/e2e/browser-e2e.mjs
+@@ -64,6 +64,7 @@ try {
+   response = await page.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
+   check("dashboard responds", response?.status() === 200, `HTTP ${response?.status()}`);
+   check("dashboard marks sample records as preview", await page.getByText("Preview data", { exact: true }).isVisible());
++  await page.getByText("Lace wallet is required for Midnight", { exact: true }).waitFor();
+   check("missing wallet message is accurate", await page.getByText("Lace wallet is required for Midnight", { exact: true }).isVisible());
+   await page.locator("select").selectOption("paid");
+   check("dashboard paid filter works", (await page.locator("tbody tr").count()) === 2, `rows=${await page.locator("tbody tr").count()}`);
+@@ -75,6 +76,7 @@ try {
+ 
+   response = await page.goto(`${baseUrl}/connect`, { waitUntil: "networkidle" });
+   check("connect route responds", response?.status() === 200, `HTTP ${response?.status()}`);
++  await page.getByText(/Lace was not detected/).waitFor();
+   check("connect route explains missing connector", await page.getByText(/Lace was not detected/).isVisible());
+ 
+   response = await page.goto(`${baseUrl}/checkout`, { waitUntil: "networkidle" });
+@@ -202,14 +204,26 @@ try {
+   // complete connection instead of dereferencing undefined.networkId.
+   const configlessContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+   await configlessContext.addInitScript(() => {
++    let configurationChecked = false;
+     const connectedApi = {
++      hintUsage: async () => {
++        throw new TypeError("Cannot read properties of undefined (reading 'networkId')");
++      },
+       getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
+-      getConfiguration: async () => undefined,
+-      getShieldedAddresses: async () => ({
+-        shieldedAddress: "mock-shielded-address",
+-        shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
+-        shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
+-      }),
++      getConfiguration: async () => {
++        configurationChecked = true;
++        return undefined;
++      },
++      getShieldedAddresses: async () => {
++        if (!configurationChecked) {
++          throw new TypeError("Cannot read properties of undefined (reading 'networkId')");
++        }
++        return {
++          shieldedAddress: "mock-shielded-address",
++          shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
++          shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
++        };
++      },
+       getProvingProvider: async () => ({
+         check: async () => [],
+         prove: async () => new Uint8Array(),
+@@ -233,6 +247,7 @@ try {
+   await configlessPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
+   await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
+   check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
++  check("hosted wallet RPCs are ordered and advisory hint failures do not abort connection", !(await configlessPage.getByText(/Cannot read properties of undefined/).isVisible().catch(() => false)));
+   await configlessContext.close();
+ 
+   check("browser emitted no uncaught errors", browserErrors.length === 0, browserErrors.join(" | "));

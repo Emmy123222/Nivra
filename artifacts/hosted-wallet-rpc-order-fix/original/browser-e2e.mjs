@@ -64,7 +64,6 @@ try {
   response = await page.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
   check("dashboard responds", response?.status() === 200, `HTTP ${response?.status()}`);
   check("dashboard marks sample records as preview", await page.getByText("Preview data", { exact: true }).isVisible());
-  await page.getByText("Lace wallet is required for Midnight", { exact: true }).waitFor();
   check("missing wallet message is accurate", await page.getByText("Lace wallet is required for Midnight", { exact: true }).isVisible());
   await page.locator("select").selectOption("paid");
   check("dashboard paid filter works", (await page.locator("tbody tr").count()) === 2, `rows=${await page.locator("tbody tr").count()}`);
@@ -76,7 +75,6 @@ try {
 
   response = await page.goto(`${baseUrl}/connect`, { waitUntil: "networkidle" });
   check("connect route responds", response?.status() === 200, `HTTP ${response?.status()}`);
-  await page.getByText(/Lace was not detected/).waitFor();
   check("connect route explains missing connector", await page.getByText(/Lace was not detected/).isVisible());
 
   response = await page.goto(`${baseUrl}/checkout`, { waitUntil: "networkidle" });
@@ -204,26 +202,14 @@ try {
   // complete connection instead of dereferencing undefined.networkId.
   const configlessContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await configlessContext.addInitScript(() => {
-    let configurationChecked = false;
     const connectedApi = {
-      hintUsage: async () => {
-        throw new TypeError("Cannot read properties of undefined (reading 'networkId')");
-      },
       getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
-      getConfiguration: async () => {
-        configurationChecked = true;
-        return undefined;
-      },
-      getShieldedAddresses: async () => {
-        if (!configurationChecked) {
-          throw new TypeError("Cannot read properties of undefined (reading 'networkId')");
-        }
-        return {
-          shieldedAddress: "mock-shielded-address",
-          shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
-          shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
-        };
-      },
+      getConfiguration: async () => undefined,
+      getShieldedAddresses: async () => ({
+        shieldedAddress: "mock-shielded-address",
+        shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
+        shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
+      }),
       getProvingProvider: async () => ({
         check: async () => [],
         prove: async () => new Uint8Array(),
@@ -247,7 +233,6 @@ try {
   await configlessPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
   await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
   check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
-  check("hosted wallet RPCs are ordered and advisory hint failures do not abort connection", !(await configlessPage.getByText(/Cannot read properties of undefined/).isVisible().catch(() => false)));
   await configlessContext.close();
 
   check("browser emitted no uncaught errors", browserErrors.length === 0, browserErrors.join(" | "));
