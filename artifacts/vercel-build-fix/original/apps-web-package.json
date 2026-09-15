@@ -5,7 +5,7 @@
   "scripts": {
     "predev": "node scripts/copy-zk-assets.mjs",
     "dev": "next dev --webpack",
-    "prebuild": "npm --prefix ../.. run build --workspace=@nivra/contracts && npm --prefix ../.. run build --workspace=@nivra/sdk && node scripts/copy-zk-assets.mjs",
+    "prebuild": "node scripts/copy-zk-assets.mjs",
     "build": "next build --webpack",
     "start": "next start",
     "typecheck": "tsc --noEmit",

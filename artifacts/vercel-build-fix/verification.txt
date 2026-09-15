@@ -1,0 +1,41 @@
+Vercel build failure
+
+Baseline failure:
+`Compiled contract assets not found at /vercel/path0/contracts/src/managed/invoice_registry.`
+
+Cause:
+`contracts/src/managed/` was ignored even though Vercel does not install the
+standalone Compact compiler needed to recreate it.
+
+Modified behavior:
+- The version-matched Compact compiler output and proving assets are tracked.
+- `apps/web` prebuild compiles the contracts TypeScript package and SDK package
+  before copying the tracked browser ZK assets.
+- No deployment secret or API key is introduced.
+
+Local verification command:
+`cd apps/web && npm run build`
+
+Literal result:
+- Contract package build: exit 0
+- SDK package build: exit 0
+- ZK asset copy: exit 0
+- Next.js production build: `Compiled successfully`; 9 routes generated; exit 0
+
+Full output: `local-build.log`
+
+Clean-checkout verification:
+`git worktree add --detach CLEAN_DIR HEAD && npm ci && cd apps/web && npm run build`
+
+Literal result:
+- Fresh dependency installation: `added 522 packages`; `found 0 vulnerabilities`
+- Contract and SDK packages built without invoking the Compact compiler
+- ZK assets copied from the tracked compiler output
+- Next.js: `Compiled successfully`; 9 routes generated
+- Exit status: 0
+
+Full output: `clean-vercel-build.log`
+
+Rollback verification command: artifacts/vercel-build-fix/rollback.sh TEMP_ROOT
+Literal output: restored hosted-build baseline under /tmp/tmp.y5lALC8xjM
+Exit status: 0

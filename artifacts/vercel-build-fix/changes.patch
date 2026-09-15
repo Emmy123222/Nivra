@@ -1,0 +1,28 @@
+diff --git a/.gitignore b/.gitignore
+index 95d6437..5cf2523 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -7,7 +7,9 @@ build/
+ .env.*
+ !.env.example
+ .DS_Store
+-contracts/src/managed/
++# Compact compiler output is committed because hosted frontend builds do not
++# include the standalone Compact compiler. It also contains the browser proving
++# assets required at runtime.
+ apps/web/public/keys/
+ apps/web/public/zkir/
+ .compact/
+diff --git a/apps/web/package.json b/apps/web/package.json
+index 1dba884..4da801c 100644
+--- a/apps/web/package.json
++++ b/apps/web/package.json
+@@ -5,7 +5,7 @@
+   "scripts": {
+     "predev": "node scripts/copy-zk-assets.mjs",
+     "dev": "next dev --webpack",
+-    "prebuild": "node scripts/copy-zk-assets.mjs",
++    "prebuild": "npm --prefix ../.. run build --workspace=@nivra/contracts && npm --prefix ../.. run build --workspace=@nivra/sdk && node scripts/copy-zk-assets.mjs",
+     "build": "next build --webpack",
+     "start": "next start",
+     "typecheck": "tsc --noEmit",

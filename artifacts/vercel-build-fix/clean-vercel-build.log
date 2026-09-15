@@ -1,0 +1,61 @@
+CLEAN_CHECKOUT=/tmp/tmp.DMHHukpaVR/repo
+Preparing worktree (detached HEAD 024537f)
+HEAD is now at 024537f fix Vercel build with tracked Compact assets
+COMMAND: npm ci
+npm warn deprecated eslint@9.39.5: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+
+added 522 packages, and audited 526 packages in 15s
+
+177 packages are looking for funding
+  run `npm fund` for details
+
+found 0 vulnerabilities
+COMMAND: npm run build
+
+> web@0.1.0 prebuild
+> npm --prefix ../.. run build --workspace=@nivra/contracts && npm --prefix ../.. run build --workspace=@nivra/sdk && node scripts/copy-zk-assets.mjs
+
+
+> @nivra/contracts@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed
+
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+Copied ZK assets: /tmp/tmp.DMHHukpaVR/repo/contracts/src/managed/invoice_registry/keys -> /tmp/tmp.DMHHukpaVR/repo/apps/web/public/keys, /tmp/tmp.DMHHukpaVR/repo/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /tmp/tmp.DMHHukpaVR/repo/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build --webpack
+
+▲ Next.js 16.3.5 (webpack)
+✓ Running next.config.ts took 34ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 29.0s
+  Running TypeScript ...
+  Finished TypeScript in 7.2s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9)
+  Generating static pages using 7 workers (4/9)
+  Generating static pages using 7 workers (6/9)
+✓ Generating static pages using 7 workers (9/9) in 1981ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+EXIT_STATUS: 0

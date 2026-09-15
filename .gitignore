@@ -7,7 +7,9 @@ build/
 .env.*
 !.env.example
 .DS_Store
-contracts/src/managed/
+# Compact compiler output is committed because hosted frontend builds do not
+# include the standalone Compact compiler. It also contains the browser proving
+# assets required at runtime.
 apps/web/public/keys/
 apps/web/public/zkir/
 .compact/
