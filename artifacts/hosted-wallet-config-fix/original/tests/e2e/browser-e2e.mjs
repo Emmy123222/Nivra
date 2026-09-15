@@ -196,45 +196,6 @@ try {
   await connectedPage.screenshot({ path: `${screenshotDir}/create-connected-mock.png`, fullPage: true });
   await connectedContext.close();
 
-  // Reproduce a runtime deviation observed from 1AM on a deployed HTTPS origin:
-  // getConfiguration() resolves undefined even though the connector v4 type says
-  // it returns Configuration. Nivra must use its selected-network endpoints and
-  // complete connection instead of dereferencing undefined.networkId.
-  const configlessContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  await configlessContext.addInitScript(() => {
-    const connectedApi = {
-      getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
-      getConfiguration: async () => undefined,
-      getShieldedAddresses: async () => ({
-        shieldedAddress: "mock-shielded-address",
-        shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
-        shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
-      }),
-      getProvingProvider: async () => ({
-        check: async () => [],
-        prove: async () => new Uint8Array(),
-      }),
-      balanceUnsealedTransaction: async (tx) => ({ tx }),
-      submitTransaction: async () => undefined,
-    };
-    window.midnight = {
-      mock: {
-        apiVersion: "4.0.1",
-        rdns: "test.nivra.configless-wallet",
-        name: "Configless E2E Wallet",
-        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
-        connect: async () => connectedApi,
-      },
-    };
-  });
-  const configlessPage = await configlessContext.newPage();
-  configlessPage.on("pageerror", (error) => browserErrors.push(`configless pageerror: ${error.message}`));
-  await configlessPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
-  await configlessPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
-  await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
-  check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
-  await configlessContext.close();
-
   check("browser emitted no uncaught errors", browserErrors.length === 0, browserErrors.join(" | "));
   await context.close();
 } finally {

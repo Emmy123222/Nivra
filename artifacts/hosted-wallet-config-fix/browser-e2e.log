@@ -1,0 +1,41 @@
+COMMAND: BASE_URL=http://127.0.0.1:3100 E2E_OUTPUT_DIR=artifacts/hosted-wallet-config-fix/e2e npm run test:e2e
+
+> nivra@0.1.0 test:e2e
+> node tests/e2e/browser-e2e.mjs
+
+PASS  landing responds (HTTP 200)
+PASS  landing hero renders
+PASS  landing primary CTA routes to dashboard
+PASS  dashboard responds (HTTP 200)
+PASS  dashboard marks sample records as preview
+PASS  missing wallet message is accurate
+PASS  dashboard paid filter works (rows=2)
+PASS  create route responds (HTTP 200)
+PASS  create route blocks disconnected use
+PASS  connect route responds (HTTP 200)
+PASS  connect route explains missing connector
+PASS  empty checkout is handled
+PASS  valid payment fragment renders
+PASS  checkout shows exact amount
+PASS  unverified invoice is never presented as payable
+PASS  checkout reparses changed fragments
+PASS  checkout rejects semantic field corruption
+PASS  valid receipt fragment waits for chain verification
+PASS  receipt reparses changed fragments
+PASS  current settle prover is served (HTTP 200)
+PASS  removed circuit asset is not shipped (HTTP 404)
+PASS  dashboard has no page-level mobile overflow (overflow=0px)
+PASS  Lace-compatible connector works without hintUsage
+PASS  browser loads compiled ZK assets
+PASS  connected merchant is offered registry deployment
+PASS  registry deployment errors are shown in the UI (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  ledger WebAssembly initializes before deployment (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  1AM Bech32m payout key reaches transaction construction (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  connected navigation opens invoice form
+PASS  invoice form reads shielded wallet balances
+PASS  invoice form rejects an invalid amount before deployment
+PASS  hosted 1AM connection tolerates missing wallet configuration
+PASS  browser emitted no uncaught errors
+
+33 browser checks passed; report: artifacts/hosted-wallet-config-fix/e2e/browser-report.json
+EXIT_STATUS: 0

@@ -60,42 +60,22 @@ export const buildBrowserProviders = async (
       "submitTransaction",
     ]);
   }
-  // Some released connectors (observed with 1AM on a hosted HTTPS origin)
-  // resolve getConfiguration() with `undefined` despite the v4 type contract.
-  // Keep wallet-provided endpoints authoritative when present, but validate the
-  // runtime value and fall back to Nivra's selected-network endpoints.
-  type RuntimeWalletConfiguration = Partial<Awaited<ReturnType<ConnectedAPI["getConfiguration"]>>>;
-  const readWalletConfiguration = async (): Promise<RuntimeWalletConfiguration | undefined> => {
-    try {
-      const value: unknown = await connectedApi.getConfiguration();
-      return value && typeof value === "object" ? value as RuntimeWalletConfiguration : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  const [shieldedAddresses, walletConfig, connectionStatus] = await Promise.all([
+  const [shieldedAddresses, walletConfig] = await Promise.all([
     connectedApi.getShieldedAddresses(),
-    readWalletConfiguration(),
-    connectedApi.getConnectionStatus(),
+    connectedApi.getConfiguration(),
   ]);
 
-  if (connectionStatus.status !== "connected") {
-    throw new Error("Wallet connection was lost. Reconnect the wallet and try again.");
-  }
-  const walletNetworkId = walletConfig?.networkId ?? connectionStatus.networkId;
-  if (walletNetworkId !== network.networkId) {
+  if (walletConfig.networkId !== network.networkId) {
     throw new Error(
-      `Wallet connected to ${walletNetworkId}, but Nivra is configured for ${network.networkId}. Switch the wallet network and reconnect.`,
+      `Wallet connected to ${walletConfig.networkId}, but Nivra is configured for ${network.networkId}. Switch the wallet network and reconnect.`,
     );
   }
-  setNetworkId(walletNetworkId);
+  setNetworkId(walletConfig.networkId);
 
   // Wallet configuration is authoritative for the user's indexer/prover choices.
   // The local network config remains a fallback for wallets that omit the deprecated
   // proverServerUri while delegated proving support is still uneven across extensions.
-  const proofServer = walletConfig?.proverServerUri ?? network.proofServer;
-  const indexerUri = walletConfig?.indexerUri ?? network.indexer;
-  const indexerWsUri = walletConfig?.indexerWsUri ?? network.indexerWS;
+  const proofServer = walletConfig.proverServerUri ?? network.proofServer;
   let proofProvider: ProofProvider;
   try {
     const provingProvider = await connectedApi.getProvingProvider({
@@ -110,7 +90,7 @@ export const buildBrowserProviders = async (
 
   return {
     privateStateProvider: browserPrivateStateProvider<InvoiceRegistryPrivateStateIds, NivraPrivateState>(),
-    publicDataProvider: indexerPublicDataProvider(indexerUri, indexerWsUri),
+    publicDataProvider: indexerPublicDataProvider(walletConfig.indexerUri, walletConfig.indexerWsUri),
     zkConfigProvider,
     proofProvider,
     walletProvider: {

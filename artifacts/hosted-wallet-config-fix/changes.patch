@@ -1,0 +1,112 @@
+diff --git a/apps/web/src/lib/providers.ts b/apps/web/src/lib/providers.ts
+index b787620..e22be17 100644
+--- a/apps/web/src/lib/providers.ts
++++ b/apps/web/src/lib/providers.ts
+@@ -60,22 +60,42 @@ export const buildBrowserProviders = async (
+       "submitTransaction",
+     ]);
+   }
+-  const [shieldedAddresses, walletConfig] = await Promise.all([
++  // Some released connectors (observed with 1AM on a hosted HTTPS origin)
++  // resolve getConfiguration() with `undefined` despite the v4 type contract.
++  // Keep wallet-provided endpoints authoritative when present, but validate the
++  // runtime value and fall back to Nivra's selected-network endpoints.
++  type RuntimeWalletConfiguration = Partial<Awaited<ReturnType<ConnectedAPI["getConfiguration"]>>>;
++  const readWalletConfiguration = async (): Promise<RuntimeWalletConfiguration | undefined> => {
++    try {
++      const value: unknown = await connectedApi.getConfiguration();
++      return value && typeof value === "object" ? value as RuntimeWalletConfiguration : undefined;
++    } catch {
++      return undefined;
++    }
++  };
++  const [shieldedAddresses, walletConfig, connectionStatus] = await Promise.all([
+     connectedApi.getShieldedAddresses(),
+-    connectedApi.getConfiguration(),
++    readWalletConfiguration(),
++    connectedApi.getConnectionStatus(),
+   ]);
+ 
+-  if (walletConfig.networkId !== network.networkId) {
++  if (connectionStatus.status !== "connected") {
++    throw new Error("Wallet connection was lost. Reconnect the wallet and try again.");
++  }
++  const walletNetworkId = walletConfig?.networkId ?? connectionStatus.networkId;
++  if (walletNetworkId !== network.networkId) {
+     throw new Error(
+-      `Wallet connected to ${walletConfig.networkId}, but Nivra is configured for ${network.networkId}. Switch the wallet network and reconnect.`,
++      `Wallet connected to ${walletNetworkId}, but Nivra is configured for ${network.networkId}. Switch the wallet network and reconnect.`,
+     );
+   }
+-  setNetworkId(walletConfig.networkId);
++  setNetworkId(walletNetworkId);
+ 
+   // Wallet configuration is authoritative for the user's indexer/prover choices.
+   // The local network config remains a fallback for wallets that omit the deprecated
+   // proverServerUri while delegated proving support is still uneven across extensions.
+-  const proofServer = walletConfig.proverServerUri ?? network.proofServer;
++  const proofServer = walletConfig?.proverServerUri ?? network.proofServer;
++  const indexerUri = walletConfig?.indexerUri ?? network.indexer;
++  const indexerWsUri = walletConfig?.indexerWsUri ?? network.indexerWS;
+   let proofProvider: ProofProvider;
+   try {
+     const provingProvider = await connectedApi.getProvingProvider({
+@@ -90,7 +110,7 @@ export const buildBrowserProviders = async (
+ 
+   return {
+     privateStateProvider: browserPrivateStateProvider<InvoiceRegistryPrivateStateIds, NivraPrivateState>(),
+-    publicDataProvider: indexerPublicDataProvider(walletConfig.indexerUri, walletConfig.indexerWsUri),
++    publicDataProvider: indexerPublicDataProvider(indexerUri, indexerWsUri),
+     zkConfigProvider,
+     proofProvider,
+     walletProvider: {
+diff --git a/tests/e2e/browser-e2e.mjs b/tests/e2e/browser-e2e.mjs
+index fd4a2be..aa69c92 100644
+--- a/tests/e2e/browser-e2e.mjs
++++ b/tests/e2e/browser-e2e.mjs
+@@ -196,6 +196,45 @@ try {
+   await connectedPage.screenshot({ path: `${screenshotDir}/create-connected-mock.png`, fullPage: true });
+   await connectedContext.close();
+ 
++  // Reproduce a runtime deviation observed from 1AM on a deployed HTTPS origin:
++  // getConfiguration() resolves undefined even though the connector v4 type says
++  // it returns Configuration. Nivra must use its selected-network endpoints and
++  // complete connection instead of dereferencing undefined.networkId.
++  const configlessContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
++  await configlessContext.addInitScript(() => {
++    const connectedApi = {
++      getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
++      getConfiguration: async () => undefined,
++      getShieldedAddresses: async () => ({
++        shieldedAddress: "mock-shielded-address",
++        shieldedCoinPublicKey: "mn_shield-cpk_preprod1mwprxkf54wsedj4mn4ntdp072lu3j8u3sdzdargsv32mlddxvfys6yu76m",
++        shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
++      }),
++      getProvingProvider: async () => ({
++        check: async () => [],
++        prove: async () => new Uint8Array(),
++      }),
++      balanceUnsealedTransaction: async (tx) => ({ tx }),
++      submitTransaction: async () => undefined,
++    };
++    window.midnight = {
++      mock: {
++        apiVersion: "4.0.1",
++        rdns: "test.nivra.configless-wallet",
++        name: "Configless E2E Wallet",
++        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
++        connect: async () => connectedApi,
++      },
++    };
++  });
++  const configlessPage = await configlessContext.newPage();
++  configlessPage.on("pageerror", (error) => browserErrors.push(`configless pageerror: ${error.message}`));
++  await configlessPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
++  await configlessPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
++  await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
++  check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
++  await configlessContext.close();
++
+   check("browser emitted no uncaught errors", browserErrors.length === 0, browserErrors.join(" | "));
+   await context.close();
+ } finally {

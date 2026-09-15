@@ -1,0 +1,32 @@
+Hosted 1AM wallet-configuration compatibility verification
+
+Baseline failure:
+`Cannot read properties of undefined (reading 'networkId')`
+
+Cause:
+1AM resolved DApp Connector `getConfiguration()` without a configuration object
+on the deployed origin. The provider builder immediately dereferenced
+`walletConfig.networkId`.
+
+Modified behavior:
+- Validate the runtime configuration response.
+- Confirm the network through `getConnectionStatus()`.
+- Prefer wallet service endpoints when provided.
+- Fall back to Nivra's selected Preprod/Preview endpoints when omitted.
+
+Exact commands and literal results:
+- `npm run typecheck --workspace=web` -> exit 0.
+- `npm run build --workspace=web` -> `Compiled successfully`; 9 routes; exit 0.
+- `BASE_URL=http://127.0.0.1:3100 E2E_OUTPUT_DIR=artifacts/hosted-wallet-config-fix/e2e npm run test:e2e`
+  -> `33 browser checks passed`; exit 0.
+- Regression assertion: `hosted 1AM connection tolerates missing wallet configuration` -> PASS.
+
+Full literal outputs:
+- `typecheck.log`
+- `build.log`
+- `browser-e2e.log`
+- `e2e/browser-report.json`
+
+Rollback verification command: artifacts/hosted-wallet-config-fix/rollback.sh TEMP_ROOT
+Literal output: restored hosted wallet-configuration baseline under /tmp/tmp.brfRTcIUJ9
+Exit status: 0

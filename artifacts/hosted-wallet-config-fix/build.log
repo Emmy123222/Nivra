@@ -1,0 +1,49 @@
+COMMAND: npm run build --workspace=web
+
+> web@0.1.0 prebuild
+> npm --prefix ../.. run build --workspace=@nivra/contracts && npm --prefix ../.. run build --workspace=@nivra/sdk && node scripts/copy-zk-assets.mjs
+
+
+> @nivra/contracts@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed
+
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+Copied ZK assets: /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/keys -> /home/emmanuel-ogheneovo/nivra/apps/web/public/keys, /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /home/emmanuel-ogheneovo/nivra/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build --webpack
+
+▲ Next.js 16.3.5 (webpack)
+✓ Running next.config.ts took 43ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 9.7s
+  Running TypeScript ...
+  Finished TypeScript in 6.1s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9)
+  Generating static pages using 7 workers (4/9)
+  Generating static pages using 7 workers (6/9)
+✓ Generating static pages using 7 workers (9/9) in 1584ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+EXIT_STATUS: 0
