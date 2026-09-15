@@ -1,0 +1,176 @@
+Lace compatibility verification
+================================
+
+$ npm test
+
+> nivra@0.1.0 test
+> npm run build && npm run test --workspaces --if-present
+
+
+> nivra@0.1.0 build
+> npm run compact && npm run build --workspace=contracts && npm run build --workspace=@nivra/sdk --if-present
+
+
+> nivra@0.1.0 compact
+> npm run compact --workspace=contracts
+
+
+> @nivra/contracts@0.1.0 compact
+> compact compile src/invoice_registry.compact src/managed/invoice_registry
+
+Compiling 4 circuits:
+
+> @nivra/contracts@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed
+
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+
+> @nivra/contracts@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /home/emmanuel-ogheneovo/nivra/contracts
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/contract/index.js" points to missing source files
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  03:31:00
+   Duration  1.03s (transform 203ms, setup 0ms, import 292ms, tests 519ms, environment 0ms)
+
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+
+ Test Files  4 passed (4)
+      Tests  27 passed (27)
+   Start at  03:31:02
+   Duration  2.03s (transform 754ms, setup 0ms, import 4.21s, tests 854ms, environment 1ms)
+
+exit=0
+
+$ npm run typecheck --workspace=apps/web; npm run lint --workspace=apps/web
+$ npm test --workspace=@nivra/sdk
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+
+ Test Files  4 passed (4)
+      Tests  27 passed (27)
+   Start at  03:27:20
+   Duration  1.77s (transform 674ms, setup 0ms, import 4.02s, tests 721ms, environment 1ms)
+
+exit=0
+$ npm run typecheck --workspace=apps/web
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+exit=0
+$ npm run lint --workspace=apps/web
+
+> web@0.1.0 lint
+> eslint
+
+exit=0
+$ git diff --check
+exit=0
+
+$ npm run build --workspace=apps/web
+
+> web@0.1.0 prebuild
+> node scripts/copy-zk-assets.mjs
+
+Copied ZK assets: /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/keys -> /home/emmanuel-ogheneovo/nivra/apps/web/public/keys, /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /home/emmanuel-ogheneovo/nivra/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build --webpack
+
+▲ Next.js 16.3.5 (webpack)
+✓ Running next.config.ts took 56ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 5.6s
+  Running TypeScript ...
+  Finished TypeScript in 3.1s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9)
+  Generating static pages using 7 workers (4/9)
+  Generating static pages using 7 workers (6/9)
+✓ Generating static pages using 7 workers (9/9) in 1854ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+exit=0
+
+$ BASE_URL=http://127.0.0.1:3000 npm run test:e2e
+
+> nivra@0.1.0 test:e2e
+> node tests/e2e/browser-e2e.mjs
+
+PASS  landing responds (HTTP 200)
+PASS  landing hero renders
+PASS  landing primary CTA routes to dashboard
+PASS  dashboard responds (HTTP 200)
+PASS  dashboard marks sample records as preview
+PASS  missing wallet message is accurate
+PASS  dashboard paid filter works (rows=2)
+PASS  create route responds (HTTP 200)
+PASS  create route blocks disconnected use
+PASS  connect route responds (HTTP 200)
+PASS  connect route explains missing connector
+PASS  empty checkout is handled
+PASS  valid payment fragment renders
+PASS  checkout shows exact amount
+PASS  unverified invoice is never presented as payable
+PASS  checkout reparses changed fragments
+PASS  checkout rejects semantic field corruption
+PASS  valid receipt fragment waits for chain verification
+PASS  receipt reparses changed fragments
+PASS  current settle prover is served (HTTP 200)
+PASS  removed circuit asset is not shipped (HTTP 404)
+PASS  dashboard has no page-level mobile overflow (overflow=0px)
+PASS  Lace-compatible connector works without hintUsage
+PASS  browser loads compiled ZK assets
+PASS  connected merchant is offered registry deployment
+PASS  registry deployment errors are shown in the UI (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  ledger WebAssembly initializes before deployment (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  connected navigation opens invoice form
+PASS  invoice form reads shielded wallet balances
+PASS  invoice form rejects an invalid amount before deployment
+PASS  browser emitted no uncaught errors
+
+31 browser checks passed; report: artifacts/e2e-test/browser-report.json
+exit=0
+
+$ NIVRA_ROLLBACK_INSTALL=0 NIVRA_ROLLBACK_VERIFY=0 artifacts/lace-compatibility-fix/rollback.sh  # isolated worktree
+Lace compatibility fix rolled back to 53236ccefdac01b394295c6a133d3ce13c28f4c3.
+rollback verification exit=0; tracked tree restored to baseline

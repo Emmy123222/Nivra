@@ -7,6 +7,7 @@ import {
   buildPaymentLinkPayload,
   buildPaymentLinkUrl,
   decodePaymentLinkPayload,
+  encodePaymentLinkPayload,
   invoiceCommitmentFromPaymentLink,
   parsePaymentLinkUrl,
 } from "../payment-link.js";
@@ -89,6 +90,18 @@ describe("payment links", () => {
     expect(() => decodePaymentLinkPayload(encode(invalidAmount))).toThrow("Malformed payment link payload");
     expect(() => decodePaymentLinkPayload(encode(invalidToken))).toThrow("Malformed payment link payload");
     expect(() => decodePaymentLinkPayload(encode(invalidPayoutKey))).toThrow("Malformed payment link payload");
+  });
+
+  it("preserves connector-encoded merchant keys instead of requiring raw hex", () => {
+    const payload = buildPaymentLinkPayload(
+      "0xaddr",
+      randomBytes(32),
+      sampleInvoiceForLink(),
+      "mn_shield-addr_test1_wallet_coin_key",
+      "mn_shield-addr_test1_wallet_encryption_key",
+    );
+
+    expect(decodePaymentLinkPayload(encodePaymentLinkPayload(payload))).toEqual(payload);
   });
 
   it("rejects a URL with no fragment", () => {

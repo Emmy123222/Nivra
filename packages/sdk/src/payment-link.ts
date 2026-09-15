@@ -104,6 +104,8 @@ export const decodePaymentLinkPayload = (token: string): PaymentLinkPayload => {
   const value = parsed as Partial<Record<keyof PaymentLinkPayload, unknown>>;
   const isBytes32 = (input: unknown): input is string =>
     typeof input === "string" && /^[0-9a-fA-F]{64}$/.test(input);
+  const isWalletKey = (input: unknown): input is string =>
+    typeof input === "string" && input.length > 0 && input.length <= 512;
   const isUint64 = (input: unknown, positive = false): input is string => {
     if (typeof input !== "string" || !/^(0|[1-9][0-9]*)$/.test(input)) return false;
     const n = BigInt(input);
@@ -121,8 +123,10 @@ export const decodePaymentLinkPayload = (token: string): PaymentLinkPayload => {
     !isBytes32(value.metadataHash) ||
     !isBytes32(value.invoiceSecret) ||
     !isBytes32(value.nonce) ||
-    !isBytes32(value.merchantPayoutKey) ||
-    !isBytes32(value.merchantEncryptionPublicKey)
+    // Wallet keys are connector-defined encoded strings (normally Bech32m), not
+    // contract bytes32 fields. Some test/local wallets expose raw hex instead.
+    !isWalletKey(value.merchantPayoutKey) ||
+    !isWalletKey(value.merchantEncryptionPublicKey)
   ) {
     throw new Error("Malformed payment link payload");
   }

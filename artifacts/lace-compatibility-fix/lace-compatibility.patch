@@ -1,0 +1,184 @@
+diff --git a/README.md b/README.md
+index 3c54d9f..c65dec1 100644
+--- a/README.md
++++ b/README.md
+@@ -29,7 +29,7 @@ expired) compiles cleanly and is covered by 21 circuit-level tests, including co
+ gaps found and fixed during development (the original delayed-claim/index design,
+ payout-key redirection, and a missing zero-amount guard) — see
+ `docs/SECURITY_REVIEW.md` for the full attacker-first pass
+-performed before calling Wave 1 done. The SDK (`packages/sdk`, 26 tests)
++performed before calling Wave 1 done. The SDK (`packages/sdk`, 27 tests)
+ provides commitment verification, payment links, receipt links, DApp Connector wallet
+ connection, and contract deployment/circuit-call wiring — all typechecked against the
+ real installed Midnight packages, with the commitment/receipt logic additionally
+diff --git a/apps/web/src/lib/providers.ts b/apps/web/src/lib/providers.ts
+index f413827..b787620 100644
+--- a/apps/web/src/lib/providers.ts
++++ b/apps/web/src/lib/providers.ts
+@@ -44,14 +44,22 @@ export const buildBrowserProviders = async (
+   // failure when the contract runtime loads verifier keys in production.
+   const browserFetch = globalThis.fetch.bind(globalThis);
+   const zkConfigProvider = new FetchZkConfigProvider<InvoiceRegistryCircuits>(zkConfigPath, browserFetch);
+-  await connectedApi.hintUsage([
+-    "getConfiguration",
+-    "getShieldedAddresses",
+-    "getShieldedBalances",
+-    "getProvingProvider",
+-    "balanceUnsealedTransaction",
+-    "submitTransaction",
+-  ]);
++  // Lace builds in the wild can expose the v4 connection methods while omitting
++  // the newer advisory hintUsage helper. Feature-detect it: the hint improves the
++  // permission prompt when present, but it is not required to construct providers.
++  const hintUsage = (connectedApi as unknown as {
++    hintUsage?: ConnectedAPI["hintUsage"];
++  }).hintUsage;
++  if (typeof hintUsage === "function") {
++    await hintUsage.call(connectedApi, [
++      "getConfiguration",
++      "getShieldedAddresses",
++      "getShieldedBalances",
++      "getProvingProvider",
++      "balanceUnsealedTransaction",
++      "submitTransaction",
++    ]);
++  }
+   const [shieldedAddresses, walletConfig] = await Promise.all([
+     connectedApi.getShieldedAddresses(),
+     connectedApi.getConfiguration(),
+diff --git a/artifacts/e2e-test/browser-report.json b/artifacts/e2e-test/browser-report.json
+index 61cea62..da0cc7b 100644
+--- a/artifacts/e2e-test/browser-report.json
++++ b/artifacts/e2e-test/browser-report.json
+@@ -1,5 +1,5 @@
+ {
+-  "generatedAt": "2026-09-15T02:05:16.883Z",
++  "generatedAt": "2026-09-15T02:28:42.497Z",
+   "baseUrl": "http://127.0.0.1:3000",
+   "passed": 31,
+   "failed": 0,
+@@ -116,7 +116,7 @@
+       "detail": "overflow=0px"
+     },
+     {
+-      "name": "DApp Connector handshake reaches connected state",
++      "name": "Lace-compatible connector works without hintUsage",
+       "result": "PASS",
+       "detail": ""
+     },
+diff --git a/docs/BUILD_STATUS.md b/docs/BUILD_STATUS.md
+index 93ead40..f7e315a 100644
+--- a/docs/BUILD_STATUS.md
++++ b/docs/BUILD_STATUS.md
+@@ -27,7 +27,7 @@ reproducible test exists for it.
+ | SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | merchant/invoice/payout/receipt commitments are cross-checked against the compiled contract byte-for-byte |
+ | SDK: contract deployment/circuit-call layer | DONE | `packages/sdk/src/{common-types,providers,contract}.ts`; typechecks cleanly against the real installed `@midnight-ntwrk/midnight-js@4.1.1`/`compact-js@2.5.1` packages; not run end-to-end (no proof server/live network in this sandbox) — see below |
+ | Frontend (`apps/web`) | TESTED | Next.js 16 + Tailwind app; all 7 product routes compile in the production build and 31 browser E2E checks pass against `next start`; see below |
+-| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 26 SDK tests total, including cross-invoice receipt replay, payout-key substitution, and malformed semantic fields |
++| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 27 SDK tests total, including cross-invoice receipt replay, connector-encoded wallet keys, payout-key substitution, and malformed semantic fields |
+ | Security review (Phase 27) | TESTED | `docs/SECURITY_REVIEW.md`; one real Low-severity gap found and fixed (zero-amount invoices), one test-coverage gap closed (exact expiry boundary), full attack-category checklist with evidence |
+ 
+ ## Frontend (`apps/web`)
+@@ -116,6 +116,13 @@ wallet approval, and reachable network services.
+    rejects an unbound `window.fetch` stored as a callback. The app now builds with
+    Webpack's async-WASM pipeline and supplies a bound browser fetch to the ZK provider.
+    Browser E2E verifies that real compiled verifier and ZKIR files load successfully.
++6. **Lace connector capability drift.** Some released Lace builds expose the v4
++   connection surface without the advisory `hintUsage` helper. Calling it
++   unconditionally left the wallet popup successful but marked Nivra disconnected.
++   Provider setup now feature-detects that helper, and the browser suite deliberately
++   omits it while verifying the connected state. Merchant keys are also accepted in
++   the connector's encoded-string form instead of being incorrectly restricted to
++   raw 32-byte hex.
+ 
+ These are recorded here rather than silently fixed and forgotten because each is a
+ real, generalizable lesson about this specific toolchain (Next.js 16 + Turbopack +
+@@ -153,7 +160,7 @@ build` → `dist/`, `exports`/`main`/`types` in `package.json`) specifically so
+ `@nivra/sdk` could depend on it as a normal npm workspace package rather than reaching
+ into another package's `src/`. Verified end-to-end from a clean checkout: `rm -rf
+ contracts/src/managed contracts/dist packages/sdk/dist && npm test` (root script now
+-runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 47/47 tests
++runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 48/48 tests
+ green.
+ 
+ ## SDK: contract deployment/circuit-call layer
+diff --git a/packages/sdk/src/payment-link.ts b/packages/sdk/src/payment-link.ts
+index 297df16..fef00d0 100644
+--- a/packages/sdk/src/payment-link.ts
++++ b/packages/sdk/src/payment-link.ts
+@@ -104,6 +104,8 @@ export const decodePaymentLinkPayload = (token: string): PaymentLinkPayload => {
+   const value = parsed as Partial<Record<keyof PaymentLinkPayload, unknown>>;
+   const isBytes32 = (input: unknown): input is string =>
+     typeof input === "string" && /^[0-9a-fA-F]{64}$/.test(input);
++  const isWalletKey = (input: unknown): input is string =>
++    typeof input === "string" && input.length > 0 && input.length <= 512;
+   const isUint64 = (input: unknown, positive = false): input is string => {
+     if (typeof input !== "string" || !/^(0|[1-9][0-9]*)$/.test(input)) return false;
+     const n = BigInt(input);
+@@ -121,8 +123,10 @@ export const decodePaymentLinkPayload = (token: string): PaymentLinkPayload => {
+     !isBytes32(value.metadataHash) ||
+     !isBytes32(value.invoiceSecret) ||
+     !isBytes32(value.nonce) ||
+-    !isBytes32(value.merchantPayoutKey) ||
+-    !isBytes32(value.merchantEncryptionPublicKey)
++    // Wallet keys are connector-defined encoded strings (normally Bech32m), not
++    // contract bytes32 fields. Some test/local wallets expose raw hex instead.
++    !isWalletKey(value.merchantPayoutKey) ||
++    !isWalletKey(value.merchantEncryptionPublicKey)
+   ) {
+     throw new Error("Malformed payment link payload");
+   }
+diff --git a/packages/sdk/src/test/payment-link.test.ts b/packages/sdk/src/test/payment-link.test.ts
+index 2a3e62c..55c20c5 100644
+--- a/packages/sdk/src/test/payment-link.test.ts
++++ b/packages/sdk/src/test/payment-link.test.ts
+@@ -7,6 +7,7 @@ import {
+   buildPaymentLinkPayload,
+   buildPaymentLinkUrl,
+   decodePaymentLinkPayload,
++  encodePaymentLinkPayload,
+   invoiceCommitmentFromPaymentLink,
+   parsePaymentLinkUrl,
+ } from "../payment-link.js";
+@@ -91,6 +92,18 @@ describe("payment links", () => {
+     expect(() => decodePaymentLinkPayload(encode(invalidPayoutKey))).toThrow("Malformed payment link payload");
+   });
+ 
++  it("preserves connector-encoded merchant keys instead of requiring raw hex", () => {
++    const payload = buildPaymentLinkPayload(
++      "0xaddr",
++      randomBytes(32),
++      sampleInvoiceForLink(),
++      "mn_shield-addr_test1_wallet_coin_key",
++      "mn_shield-addr_test1_wallet_encryption_key",
++    );
++
++    expect(decodePaymentLinkPayload(encodePaymentLinkPayload(payload))).toEqual(payload);
++  });
++
+   it("rejects a URL with no fragment", () => {
+     expect(() => parsePaymentLinkUrl("https://pay.example/checkout")).toThrow("no fragment");
+   });
+diff --git a/tests/e2e/browser-e2e.mjs b/tests/e2e/browser-e2e.mjs
+index dbf0924..da75cdd 100644
+--- a/tests/e2e/browser-e2e.mjs
++++ b/tests/e2e/browser-e2e.mjs
+@@ -121,7 +121,8 @@ try {
+   await connectedContext.addInitScript(() => {
+     const connectedApi = {
+       getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
+-      hintUsage: async () => undefined,
++      // Deliberately omit hintUsage: released Lace variants can provide the v4
++      // connected methods without this newer advisory helper.
+       getShieldedAddresses: async () => ({
+         shieldedAddress: "mock-shielded-address",
+         shieldedCoinPublicKey: "db82335934aba196cabb9d66b685fe57f9191f918344de8d106455bfb5a66249",
+@@ -168,7 +169,7 @@ try {
+   await connectedPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
+   await connectedPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
+   await connectedPage.getByText("Wallet connected", { exact: true }).waitFor();
+-  check("DApp Connector handshake reaches connected state", await connectedPage.getByText("Wallet connected", { exact: true }).isVisible());
++  check("Lace-compatible connector works without hintUsage", await connectedPage.getByText("Wallet connected", { exact: true }).isVisible());
+   check("browser loads compiled ZK assets", await connectedPage.evaluate(() => window.__nivraZkAssetsLoaded === true));
+   check("connected merchant is offered registry deployment", await connectedPage.getByText("Finish setting up your private registry").isVisible());
+   await connectedPage.getByRole("button", { name: "Set up registry" }).click();

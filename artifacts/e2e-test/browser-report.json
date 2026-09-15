@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T02:05:16.883Z",
+  "generatedAt": "2026-09-15T02:28:42.497Z",
   "baseUrl": "http://127.0.0.1:3000",
   "passed": 31,
   "failed": 0,
@@ -116,7 +116,7 @@
       "detail": "overflow=0px"
     },
     {
-      "name": "DApp Connector handshake reaches connected state",
+      "name": "Lace-compatible connector works without hintUsage",
       "result": "PASS",
       "detail": ""
     },

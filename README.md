@@ -29,7 +29,7 @@ expired) compiles cleanly and is covered by 21 circuit-level tests, including co
 gaps found and fixed during development (the original delayed-claim/index design,
 payout-key redirection, and a missing zero-amount guard) — see
 `docs/SECURITY_REVIEW.md` for the full attacker-first pass
-performed before calling Wave 1 done. The SDK (`packages/sdk`, 26 tests)
+performed before calling Wave 1 done. The SDK (`packages/sdk`, 27 tests)
 provides commitment verification, payment links, receipt links, DApp Connector wallet
 connection, and contract deployment/circuit-call wiring — all typechecked against the
 real installed Midnight packages, with the commitment/receipt logic additionally

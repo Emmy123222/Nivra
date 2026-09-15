@@ -121,7 +121,8 @@ try {
   await connectedContext.addInitScript(() => {
     const connectedApi = {
       getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
-      hintUsage: async () => undefined,
+      // Deliberately omit hintUsage: released Lace variants can provide the v4
+      // connected methods without this newer advisory helper.
       getShieldedAddresses: async () => ({
         shieldedAddress: "mock-shielded-address",
         shieldedCoinPublicKey: "db82335934aba196cabb9d66b685fe57f9191f918344de8d106455bfb5a66249",
@@ -168,7 +169,7 @@ try {
   await connectedPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
   await connectedPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
   await connectedPage.getByText("Wallet connected", { exact: true }).waitFor();
-  check("DApp Connector handshake reaches connected state", await connectedPage.getByText("Wallet connected", { exact: true }).isVisible());
+  check("Lace-compatible connector works without hintUsage", await connectedPage.getByText("Wallet connected", { exact: true }).isVisible());
   check("browser loads compiled ZK assets", await connectedPage.evaluate(() => window.__nivraZkAssetsLoaded === true));
   check("connected merchant is offered registry deployment", await connectedPage.getByText("Finish setting up your private registry").isVisible());
   await connectedPage.getByRole("button", { name: "Set up registry" }).click();

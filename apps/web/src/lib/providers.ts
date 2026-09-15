@@ -44,14 +44,22 @@ export const buildBrowserProviders = async (
   // failure when the contract runtime loads verifier keys in production.
   const browserFetch = globalThis.fetch.bind(globalThis);
   const zkConfigProvider = new FetchZkConfigProvider<InvoiceRegistryCircuits>(zkConfigPath, browserFetch);
-  await connectedApi.hintUsage([
-    "getConfiguration",
-    "getShieldedAddresses",
-    "getShieldedBalances",
-    "getProvingProvider",
-    "balanceUnsealedTransaction",
-    "submitTransaction",
-  ]);
+  // Lace builds in the wild can expose the v4 connection methods while omitting
+  // the newer advisory hintUsage helper. Feature-detect it: the hint improves the
+  // permission prompt when present, but it is not required to construct providers.
+  const hintUsage = (connectedApi as unknown as {
+    hintUsage?: ConnectedAPI["hintUsage"];
+  }).hintUsage;
+  if (typeof hintUsage === "function") {
+    await hintUsage.call(connectedApi, [
+      "getConfiguration",
+      "getShieldedAddresses",
+      "getShieldedBalances",
+      "getProvingProvider",
+      "balanceUnsealedTransaction",
+      "submitTransaction",
+    ]);
+  }
   const [shieldedAddresses, walletConfig] = await Promise.all([
     connectedApi.getShieldedAddresses(),
     connectedApi.getConfiguration(),

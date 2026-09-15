@@ -27,7 +27,7 @@ reproducible test exists for it.
 | SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | merchant/invoice/payout/receipt commitments are cross-checked against the compiled contract byte-for-byte |
 | SDK: contract deployment/circuit-call layer | DONE | `packages/sdk/src/{common-types,providers,contract}.ts`; typechecks cleanly against the real installed `@midnight-ntwrk/midnight-js@4.1.1`/`compact-js@2.5.1` packages; not run end-to-end (no proof server/live network in this sandbox) — see below |
 | Frontend (`apps/web`) | TESTED | Next.js 16 + Tailwind app; all 7 product routes compile in the production build and 31 browser E2E checks pass against `next start`; see below |
-| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 26 SDK tests total, including cross-invoice receipt replay, payout-key substitution, and malformed semantic fields |
+| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 27 SDK tests total, including cross-invoice receipt replay, connector-encoded wallet keys, payout-key substitution, and malformed semantic fields |
 | Security review (Phase 27) | TESTED | `docs/SECURITY_REVIEW.md`; one real Low-severity gap found and fixed (zero-amount invoices), one test-coverage gap closed (exact expiry boundary), full attack-category checklist with evidence |
 
 ## Frontend (`apps/web`)
@@ -116,6 +116,13 @@ wallet approval, and reachable network services.
    rejects an unbound `window.fetch` stored as a callback. The app now builds with
    Webpack's async-WASM pipeline and supplies a bound browser fetch to the ZK provider.
    Browser E2E verifies that real compiled verifier and ZKIR files load successfully.
+6. **Lace connector capability drift.** Some released Lace builds expose the v4
+   connection surface without the advisory `hintUsage` helper. Calling it
+   unconditionally left the wallet popup successful but marked Nivra disconnected.
+   Provider setup now feature-detects that helper, and the browser suite deliberately
+   omits it while verifying the connected state. Merchant keys are also accepted in
+   the connector's encoded-string form instead of being incorrectly restricted to
+   raw 32-byte hex.
 
 These are recorded here rather than silently fixed and forgotten because each is a
 real, generalizable lesson about this specific toolchain (Next.js 16 + Turbopack +
@@ -153,7 +160,7 @@ build` → `dist/`, `exports`/`main`/`types` in `package.json`) specifically so
 `@nivra/sdk` could depend on it as a normal npm workspace package rather than reaching
 into another package's `src/`. Verified end-to-end from a clean checkout: `rm -rf
 contracts/src/managed contracts/dist packages/sdk/dist && npm test` (root script now
-runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 47/47 tests
+runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 48/48 tests
 green.
 
 ## SDK: contract deployment/circuit-call layer
