@@ -17,7 +17,7 @@ import {
   type CircuitContext,
 } from "@midnight-ntwrk/compact-runtime";
 import { InvoiceRegistry, createNivraPrivateState, witnesses, type NivraPrivateState } from "@nivra/contracts";
-import { getInvoiceStatus, settleWithin, verifyReceipt } from "../contract.js";
+import { getInvoiceStatus, verifyReceipt } from "../contract.js";
 import { buildPaymentLinkPayload, verifyInvoicePaymentLink } from "../payment-link.js";
 import { computeMerchantCommitment } from "../commitments.js";
 import type { InvoiceRegistryProviders } from "../common-types.js";
@@ -58,22 +58,6 @@ const sampleInvoice = () => ({
   metadataHash: randomBytes(32),
   invoiceSecret: randomBytes(32),
   nonce: randomBytes(32),
-});
-
-describe("settleWithin", () => {
-  it("returns a result that arrives before the confirmation deadline", async () => {
-    await expect(settleWithin(Promise.resolve("confirmed"), 100)).resolves.toBe("confirmed");
-  });
-
-  it("returns undefined when indexer confirmation has not arrived by the deadline", async () => {
-    await expect(settleWithin(new Promise<string>(() => undefined), 5)).resolves.toBeUndefined();
-  });
-
-  it("rejects invalid timeout values", async () => {
-    await expect(settleWithin(Promise.resolve("confirmed"), -1)).rejects.toThrow(
-      "Timeout must be a non-negative finite number.",
-    );
-  });
 });
 
 describe("getInvoiceStatus", () => {

@@ -29,13 +29,11 @@
 
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import {
-  CallTxFailedError,
-  createCallTxOptions,
   deployContract,
   findDeployedContract,
-  submitCallTxAsync,
+  withContractScopedTransaction,
+  type TransactionContext,
 } from "@midnight-ntwrk/midnight-js/contracts";
-import { asContractAddress, SucceedEntirely } from "@midnight-ntwrk/midnight-js/types";
 import { InvoiceRegistry, witnesses, type NivraPrivateState } from "@nivra/contracts";
 import { createNivraPrivateState } from "@nivra/contracts";
 import {
@@ -101,8 +99,7 @@ export const settleInvoiceFromPaymentLink = async (
   zkConfigPath: string,
   payload: PaymentLinkPayload,
   payerReceiptSecret: Uint8Array,
-  options: InvoiceSettlementOptions = {},
-): Promise<InvoiceSettlementResult> => {
+) => {
   if (!payload.merchantPayoutKey || !payload.merchantEncryptionPublicKey) {
     throw new Error("This is an older payment link without a merchant payout key. Ask the merchant for a new link.");
   }
@@ -122,8 +119,7 @@ export const settleInvoiceFromPaymentLink = async (
       value: amount,
     },
   };
-  options.onProgress?.("joining");
-  await joinInvoiceRegistry(
+  const deployed = await joinInvoiceRegistry(
     providers,
     zkConfigPath,
     payload.contractAddress,
@@ -131,106 +127,27 @@ export const settleInvoiceFromPaymentLink = async (
     InvoiceRegistryPayerPrivateStateId,
   );
 
-  const compiledContract = compileInvoiceRegistry(zkConfigPath);
-  const callOptions = createCallTxOptions(
-    compiledContract,
-    "settleInvoice",
-    asContractAddress(payload.contractAddress),
-    InvoiceRegistryPayerPrivateStateId,
-    new Map([[payload.merchantPayoutKey, payload.merchantEncryptionPublicKey]]),
-    [
-      hexToBytes(payload.merchantCommitment),
-      amount,
-      tokenColor,
-      BigInt(payload.expiry),
-      hexToBytes(payload.metadataHash),
-      hexToBytes(payload.invoiceSecret),
-      hexToBytes(payload.nonce),
-    ],
+  return withContractScopedTransaction<InvoiceRegistryContractType>(
+    providers,
+    async (tx) => {
+      await deployed.callTx.settleInvoice(
+        tx as unknown as TransactionContext<InvoiceRegistryContractType, "settleInvoice">,
+        hexToBytes(payload.merchantCommitment),
+        amount,
+        tokenColor,
+        BigInt(payload.expiry),
+        hexToBytes(payload.metadataHash),
+        hexToBytes(payload.invoiceSecret),
+        hexToBytes(payload.nonce),
+      );
+    },
+    {
+      scopeName: "nivra-settle-invoice",
+      additionalCoinEncPublicKeyMappings: new Map([
+        [payload.merchantPayoutKey, payload.merchantEncryptionPublicKey],
+      ]),
+    },
   );
-
-  const progressProviders: InvoiceRegistryProviders = {
-    ...providers,
-    proofProvider: {
-      proveTx: async (tx, config) => {
-        options.onProgress?.("proving");
-        return providers.proofProvider.proveTx(tx, config);
-      },
-    },
-    walletProvider: {
-      ...providers.walletProvider,
-      balanceTx: async (tx, ttl) => {
-        options.onProgress?.("awaiting-wallet");
-        return providers.walletProvider.balanceTx(tx, ttl);
-      },
-    },
-    midnightProvider: {
-      submitTx: async (tx) => {
-        options.onProgress?.("submitting");
-        return providers.midnightProvider.submitTx(tx);
-      },
-    },
-  };
-
-  const { txId, callTxData } = await submitCallTxAsync(progressProviders, callOptions);
-  options.onProgress?.("confirming");
-
-  const finalization = providers.publicDataProvider.watchForTxData(txId).then(async (finalized) => {
-    if (finalized.status !== SucceedEntirely) {
-      throw new CallTxFailedError(finalized, "settleInvoice");
-    }
-    await providers.privateStateProvider.set(
-      InvoiceRegistryPayerPrivateStateId,
-      callTxData.private.nextPrivateState,
-    );
-    return finalized;
-  });
-
-  const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 60_000;
-  const finalized = await settleWithin(finalization, confirmationTimeoutMs);
-  if (finalized === undefined) {
-    // Keep the watcher alive while this tab remains open so a delayed success still
-    // advances the payer's private state. The transaction has already been submitted;
-    // callers must show it as pending rather than inviting an unsafe duplicate payment.
-    void finalization.catch(() => undefined);
-    return { public: { txId }, confirmation: "pending" };
-  }
-
-  return { public: finalized, confirmation: "confirmed" };
-};
-
-export type InvoiceSettlementStage =
-  | "joining"
-  | "proving"
-  | "awaiting-wallet"
-  | "submitting"
-  | "confirming";
-
-export type InvoiceSettlementOptions = {
-  /** Bounds only the indexer confirmation wait, after the wallet has submitted the transaction. */
-  readonly confirmationTimeoutMs?: number;
-  readonly onProgress?: (stage: InvoiceSettlementStage) => void;
-};
-
-export type InvoiceSettlementResult = {
-  readonly public: { readonly txId: string };
-  readonly confirmation: "confirmed" | "pending";
-};
-
-/** Returns `undefined` after the deadline without cancelling the operation in progress. */
-export const settleWithin = async <T>(operation: Promise<T>, timeoutMs: number): Promise<T | undefined> => {
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new Error("Timeout must be a non-negative finite number.");
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
 };
 
 /** Reads the current public ledger state of a deployed InvoiceRegistry, or null if nothing is deployed there. */

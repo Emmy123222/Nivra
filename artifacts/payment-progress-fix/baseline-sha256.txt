@@ -1,0 +1,5 @@
+eaac2719372b165b8f7d6421cac591fe28b1baa96ae5fc882db2b547e97bd522  artifacts/payment-progress-fix/original/apps/web/src/app/checkout/page.tsx
+84dded729a06527b8a2a90ab6a42b5eb2907cef9a6db8bb35a93c1a8edfc77c3  artifacts/payment-progress-fix/original/apps/web/src/app/dashboard/create/page.tsx
+0c209a23abb24819c612b0fe804406ed882d1963a4386305b90928963278f19a  artifacts/payment-progress-fix/original/apps/web/src/lib/providers.ts
+dfe59ba181e4675cb01377ab5d09d5960abce38cc6eabb79e03503533a4fa29a  artifacts/payment-progress-fix/original/packages/sdk/src/contract.ts
+e243fefebedb3011b3636c668882e5a5e5575c217c1ea181df3712f27fd72574  artifacts/payment-progress-fix/original/packages/sdk/src/test/contract.test.ts

@@ -12,7 +12,6 @@ import {
   settleInvoiceFromPaymentLink,
   buildReceiptLinkPayload,
   buildReceiptLinkUrl,
-  type InvoiceSettlementStage,
 } from "@nivra/sdk";
 import { useWallet } from "@/lib/wallet-context";
 
@@ -34,13 +33,12 @@ type CheckoutState =
   | { step: "no-link" }
   | { step: "invalid"; reason: string }
   | { step: "ready"; payload: PaymentLinkPayload; commitment: string; onChain: boolean }
-  | { step: "paying"; payload: PaymentLinkPayload; commitment: string; stage: InvoiceSettlementStage; startedAt: number }
-  | { step: "submitted"; payload: PaymentLinkPayload; commitment: string; receiptUrl: string; txId: string }
+  | { step: "paying"; payload: PaymentLinkPayload; commitment: string }
   | { step: "paid"; payload: PaymentLinkPayload; commitment: string; receiptUrl: string; txId: string }
   | { step: "error"; message: string };
 
 export default function CheckoutPage() {
-  const { status, connect, connecting, providers } = useWallet();
+  const { status, connect, connecting, providers, connectedApi } = useWallet();
   const [state, setState] = useState<CheckoutState>({ step: "loading" });
 
   // The payment link's private fields live only in the URL fragment (never sent to any
@@ -88,8 +86,7 @@ export default function CheckoutPage() {
   const pay = async () => {
     if (state.step !== "ready") return;
     const { payload, commitment } = state;
-    const startedAt = Date.now();
-    setState({ step: "paying", payload, commitment, stage: "joining", startedAt });
+    setState({ step: "paying", payload, commitment });
     try {
       if (!providers) throw new Error("Wallet not connected.");
       const verified = await verifyInvoicePaymentLink(providers, payload);
@@ -97,16 +94,31 @@ export default function CheckoutPage() {
       if (BigInt(payload.expiry) <= BigInt(Math.floor(Date.now() / 1000))) {
         throw new Error("This invoice has expired. Ask the merchant for a new invoice.");
       }
+      if (!connectedApi) throw new Error("Wallet connection was lost. Reconnect and try again.");
+      // This is only an early UX check. Some connector builds intermittently
+      // fail the balance-read RPC even though transaction balancing works, so
+      // let the wallet perform the authoritative check during settlement.
+      try {
+        const balances = await connectedApi.getShieldedBalances();
+        const matchingBalance = Object.entries(balances).find(
+          // DApp Connector token keys are already hex-encoded raw token types.
+          ([type]) => type.toLowerCase() === payload.tokenColor.toLowerCase(),
+        )?.[1] ?? BigInt(0);
+        if (matchingBalance < BigInt(payload.amount)) {
+          throw new Error(`Insufficient shielded balance. Required ${payload.amount}; available ${matchingBalance.toString()}.`);
+        }
+      } catch (balanceError) {
+        if (balanceError instanceof Error && balanceError.message.startsWith("Insufficient shielded balance.")) {
+          throw balanceError;
+        }
+      }
+
       const payerReceiptSecret = crypto.getRandomValues(new Uint8Array(32));
-      const settlement = await settleInvoiceFromPaymentLink(
+      const finalized = await settleInvoiceFromPaymentLink(
         providers,
         window.location.origin,
         payload,
         payerReceiptSecret,
-        {
-          confirmationTimeoutMs: 60_000,
-          onProgress: (stage) => setState({ step: "paying", payload, commitment, stage, startedAt }),
-        },
       );
       const receipt = buildReceiptLinkPayload(
         payload.contractAddress,
@@ -114,13 +126,7 @@ export default function CheckoutPage() {
         payerReceiptSecret,
       );
       const receiptUrl = buildReceiptLinkUrl(`${window.location.origin}/receipt`, receipt);
-      setState({
-        step: settlement.confirmation === "confirmed" ? "paid" : "submitted",
-        payload,
-        commitment,
-        receiptUrl,
-        txId: settlement.public.txId,
-      });
+      setState({ step: "paid", payload, commitment, receiptUrl, txId: finalized.public.txId });
     } catch (e) {
       setState({ step: "error", message: e instanceof Error ? e.message : String(e) });
     }
@@ -158,23 +164,6 @@ export default function CheckoutPage() {
           <a href={state.receiptUrl} className="btn-primary mt-5 inline-flex rounded-full px-6 py-3 text-sm font-semibold">Open receipt</a>
           <button type="button" onClick={() => void navigator.clipboard.writeText(state.receiptUrl)} className="btn-ghost mt-3 w-full rounded-full px-6 py-3 text-sm">Copy private receipt link</button>
           <p className="mt-3 text-[11px] leading-5 text-[var(--warning)]">Save this link. Its URL fragment contains the secret needed to verify your receipt.</p>
-        </div>
-      </main>
-    );
-  }
-  if (state.step === "submitted") {
-    return (
-      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-16 sm:px-6">
-        <div className="card fade-up rounded-2xl p-8 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--warning-bg)] text-[var(--warning)]">✓</div>
-          <h1 className="mt-4 text-2xl font-semibold">Payment submitted</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-            The wallet submitted your transaction, but the indexer took longer than 60 seconds to confirm it. Do not pay this invoice again.
-          </p>
-          <p className="mt-5 break-all rounded-lg bg-[var(--bg-elevated)] p-3 font-mono text-[10px] text-[var(--text-muted)]">Transaction {state.txId}</p>
-          <a href={state.receiptUrl} className="btn-primary mt-5 inline-flex rounded-full px-6 py-3 text-sm font-semibold">Open receipt</a>
-          <button type="button" onClick={() => void navigator.clipboard.writeText(state.receiptUrl)} className="btn-ghost mt-3 w-full rounded-full px-6 py-3 text-sm">Copy private receipt link</button>
-          <p className="mt-3 text-[11px] leading-5 text-[var(--warning)]">Save this link and check it again after network confirmation.</p>
         </div>
       </main>
     );
@@ -231,44 +220,10 @@ export default function CheckoutPage() {
           className="btn-primary fade-up mt-6 w-full rounded-full px-6 py-3 text-sm font-medium disabled:cursor-not-allowed"
           style={{ animationDelay: "0.1s" }}
         >
-          {state.step === "paying" ? paymentStageLabel(state.stage) : "Pay now"}
+          {state.step === "paying" ? "Preparing payment…" : "Pay now"}
         </button>
       )}
-      {state.step === "paying" ? <PaymentProgress stage={state.stage} startedAt={state.startedAt} /> : null}
     </main>
-  );
-}
-
-const paymentStageLabel = (stage: InvoiceSettlementStage): string => ({
-  joining: "Checking contract…",
-  proving: "Generating private proof…",
-  "awaiting-wallet": "Approve in your wallet…",
-  submitting: "Submitting payment…",
-  confirming: "Confirming on Midnight…",
-})[stage];
-
-function PaymentProgress({ stage, startedAt }: { stage: InvoiceSettlementStage; startedAt: number }) {
-  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - startedAt) / 1000));
-  useEffect(() => {
-    const tick = () => setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-    tick();
-    const timer = window.setInterval(tick, 1000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
-
-  const hint = stage === "awaiting-wallet"
-    ? "Open Lace or 1AM and approve the transaction."
-    : stage === "proving"
-      ? "Zero-knowledge proof generation can take a minute. Keep this tab open."
-      : stage === "confirming"
-        ? "The transaction was submitted. Waiting up to 60 seconds for indexer confirmation."
-        : "Keep this tab open while the private payment is prepared.";
-
-  return (
-    <div className="fade-up mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-3 text-center text-xs text-[var(--text-secondary)]" role="status" aria-live="polite">
-      <p>{hint}</p>
-      <p className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">Elapsed {elapsed}s</p>
-    </div>
   );
 }
 

@@ -1,0 +1,459 @@
+diff --git a/apps/web/src/app/checkout/page.tsx b/apps/web/src/app/checkout/page.tsx
+index e4c4169..23675f9 100644
+--- a/apps/web/src/app/checkout/page.tsx
++++ b/apps/web/src/app/checkout/page.tsx
+@@ -12,6 +12,7 @@ import {
+   settleInvoiceFromPaymentLink,
+   buildReceiptLinkPayload,
+   buildReceiptLinkUrl,
++  type InvoiceSettlementStage,
+ } from "@nivra/sdk";
+ import { useWallet } from "@/lib/wallet-context";
+ 
+@@ -33,12 +34,13 @@ type CheckoutState =
+   | { step: "no-link" }
+   | { step: "invalid"; reason: string }
+   | { step: "ready"; payload: PaymentLinkPayload; commitment: string; onChain: boolean }
+-  | { step: "paying"; payload: PaymentLinkPayload; commitment: string }
++  | { step: "paying"; payload: PaymentLinkPayload; commitment: string; stage: InvoiceSettlementStage; startedAt: number }
++  | { step: "submitted"; payload: PaymentLinkPayload; commitment: string; receiptUrl: string; txId: string }
+   | { step: "paid"; payload: PaymentLinkPayload; commitment: string; receiptUrl: string; txId: string }
+   | { step: "error"; message: string };
+ 
+ export default function CheckoutPage() {
+-  const { status, connect, connecting, providers, connectedApi } = useWallet();
++  const { status, connect, connecting, providers } = useWallet();
+   const [state, setState] = useState<CheckoutState>({ step: "loading" });
+ 
+   // The payment link's private fields live only in the URL fragment (never sent to any
+@@ -86,7 +88,8 @@ export default function CheckoutPage() {
+   const pay = async () => {
+     if (state.step !== "ready") return;
+     const { payload, commitment } = state;
+-    setState({ step: "paying", payload, commitment });
++    const startedAt = Date.now();
++    setState({ step: "paying", payload, commitment, stage: "joining", startedAt });
+     try {
+       if (!providers) throw new Error("Wallet not connected.");
+       const verified = await verifyInvoicePaymentLink(providers, payload);
+@@ -94,31 +97,16 @@ export default function CheckoutPage() {
+       if (BigInt(payload.expiry) <= BigInt(Math.floor(Date.now() / 1000))) {
+         throw new Error("This invoice has expired. Ask the merchant for a new invoice.");
+       }
+-      if (!connectedApi) throw new Error("Wallet connection was lost. Reconnect and try again.");
+-      // This is only an early UX check. Some connector builds intermittently
+-      // fail the balance-read RPC even though transaction balancing works, so
+-      // let the wallet perform the authoritative check during settlement.
+-      try {
+-        const balances = await connectedApi.getShieldedBalances();
+-        const matchingBalance = Object.entries(balances).find(
+-          // DApp Connector token keys are already hex-encoded raw token types.
+-          ([type]) => type.toLowerCase() === payload.tokenColor.toLowerCase(),
+-        )?.[1] ?? BigInt(0);
+-        if (matchingBalance < BigInt(payload.amount)) {
+-          throw new Error(`Insufficient shielded balance. Required ${payload.amount}; available ${matchingBalance.toString()}.`);
+-        }
+-      } catch (balanceError) {
+-        if (balanceError instanceof Error && balanceError.message.startsWith("Insufficient shielded balance.")) {
+-          throw balanceError;
+-        }
+-      }
+-
+       const payerReceiptSecret = crypto.getRandomValues(new Uint8Array(32));
+-      const finalized = await settleInvoiceFromPaymentLink(
++      const settlement = await settleInvoiceFromPaymentLink(
+         providers,
+         window.location.origin,
+         payload,
+         payerReceiptSecret,
++        {
++          confirmationTimeoutMs: 60_000,
++          onProgress: (stage) => setState({ step: "paying", payload, commitment, stage, startedAt }),
++        },
+       );
+       const receipt = buildReceiptLinkPayload(
+         payload.contractAddress,
+@@ -126,7 +114,13 @@ export default function CheckoutPage() {
+         payerReceiptSecret,
+       );
+       const receiptUrl = buildReceiptLinkUrl(`${window.location.origin}/receipt`, receipt);
+-      setState({ step: "paid", payload, commitment, receiptUrl, txId: finalized.public.txId });
++      setState({
++        step: settlement.confirmation === "confirmed" ? "paid" : "submitted",
++        payload,
++        commitment,
++        receiptUrl,
++        txId: settlement.public.txId,
++      });
+     } catch (e) {
+       setState({ step: "error", message: e instanceof Error ? e.message : String(e) });
+     }
+@@ -168,6 +162,23 @@ export default function CheckoutPage() {
+       </main>
+     );
+   }
++  if (state.step === "submitted") {
++    return (
++      <main className="mx-auto w-full max-w-lg flex-1 px-4 py-16 sm:px-6">
++        <div className="card fade-up rounded-2xl p-8 text-center">
++          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[var(--warning-bg)] text-[var(--warning)]">✓</div>
++          <h1 className="mt-4 text-2xl font-semibold">Payment submitted</h1>
++          <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
++            The wallet submitted your transaction, but the indexer took longer than 60 seconds to confirm it. Do not pay this invoice again.
++          </p>
++          <p className="mt-5 break-all rounded-lg bg-[var(--bg-elevated)] p-3 font-mono text-[10px] text-[var(--text-muted)]">Transaction {state.txId}</p>
++          <a href={state.receiptUrl} className="btn-primary mt-5 inline-flex rounded-full px-6 py-3 text-sm font-semibold">Open receipt</a>
++          <button type="button" onClick={() => void navigator.clipboard.writeText(state.receiptUrl)} className="btn-ghost mt-3 w-full rounded-full px-6 py-3 text-sm">Copy private receipt link</button>
++          <p className="mt-3 text-[11px] leading-5 text-[var(--warning)]">Save this link and check it again after network confirmation.</p>
++        </div>
++      </main>
++    );
++  }
+ 
+   const { payload, commitment } = state;
+   const onChainOk = state.step === "ready" ? state.onChain : true;
+@@ -220,13 +231,47 @@ export default function CheckoutPage() {
+           className="btn-primary fade-up mt-6 w-full rounded-full px-6 py-3 text-sm font-medium disabled:cursor-not-allowed"
+           style={{ animationDelay: "0.1s" }}
+         >
+-          {state.step === "paying" ? "Preparing payment…" : "Pay now"}
++          {state.step === "paying" ? paymentStageLabel(state.stage) : "Pay now"}
+         </button>
+       )}
++      {state.step === "paying" ? <PaymentProgress stage={state.stage} startedAt={state.startedAt} /> : null}
+     </main>
+   );
+ }
+ 
++const paymentStageLabel = (stage: InvoiceSettlementStage): string => ({
++  joining: "Checking contract…",
++  proving: "Generating private proof…",
++  "awaiting-wallet": "Approve in your wallet…",
++  submitting: "Submitting payment…",
++  confirming: "Confirming on Midnight…",
++})[stage];
++
++function PaymentProgress({ stage, startedAt }: { stage: InvoiceSettlementStage; startedAt: number }) {
++  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - startedAt) / 1000));
++  useEffect(() => {
++    const tick = () => setElapsed(Math.floor((Date.now() - startedAt) / 1000));
++    tick();
++    const timer = window.setInterval(tick, 1000);
++    return () => window.clearInterval(timer);
++  }, [startedAt]);
++
++  const hint = stage === "awaiting-wallet"
++    ? "Open Lace or 1AM and approve the transaction."
++    : stage === "proving"
++      ? "Zero-knowledge proof generation can take a minute. Keep this tab open."
++      : stage === "confirming"
++        ? "The transaction was submitted. Waiting up to 60 seconds for indexer confirmation."
++        : "Keep this tab open while the private payment is prepared.";
++
++  return (
++    <div className="fade-up mt-3 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-4 py-3 text-center text-xs text-[var(--text-secondary)]" role="status" aria-live="polite">
++      <p>{hint}</p>
++      <p className="mt-1 font-mono text-[10px] text-[var(--text-muted)]">Elapsed {elapsed}s</p>
++    </div>
++  );
++}
++
+ function CheckIcon() {
+   return (
+     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+diff --git a/apps/web/src/app/dashboard/create/page.tsx b/apps/web/src/app/dashboard/create/page.tsx
+index 32595ff..d5bcff9 100644
+--- a/apps/web/src/app/dashboard/create/page.tsx
++++ b/apps/web/src/app/dashboard/create/page.tsx
+@@ -40,8 +40,6 @@ export default function CreateInvoicePage() {
+   useEffect(() => {
+     if (!connectedApi) return;
+     let cancelled = false;
+-    setLoadingTokens(true);
+-    setBalanceError(null);
+     void connectedApi
+       .getShieldedBalances()
+       .then((balances) => {
+@@ -219,7 +217,15 @@ export default function CreateInvoicePage() {
+         {balanceError && (
+           <div className="rounded-lg bg-[var(--warning-bg)] px-4 py-3 text-xs leading-5 text-[var(--warning)]">
+             <p>{balanceError}</p>
+-            <button type="button" onClick={() => setBalanceRetry((value) => value + 1)} className="mt-1 font-semibold underline">
++            <button
++              type="button"
++              onClick={() => {
++                setLoadingTokens(true);
++                setBalanceError(null);
++                setBalanceRetry((value) => value + 1);
++              }}
++              className="mt-1 font-semibold underline"
++            >
+               Retry wallet lookup
+             </button>
+           </div>
+diff --git a/apps/web/src/lib/providers.ts b/apps/web/src/lib/providers.ts
+index 26cb789..c1087c8 100644
+--- a/apps/web/src/lib/providers.ts
++++ b/apps/web/src/lib/providers.ts
+@@ -32,6 +32,33 @@ import type { NivraPrivateState } from "@nivra/contracts";
+ import { browserPrivateStateProvider } from "./private-state-provider";
+ import type { NetworkConfig } from "./network";
+ 
++const withDeadline = async <T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  try {
++    return await Promise.race([
++      operation,
++      new Promise<never>((_, reject) => {
++        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
++      }),
++    ]);
++  } finally {
++    if (timer !== undefined) clearTimeout(timer);
++  }
++};
++
++const browserCanReachProofServer = (proofServer: string): boolean => {
++  try {
++    const endpoint = new URL(proofServer, window.location.origin);
++    const endpointIsLocal = endpoint.hostname === "127.0.0.1" || endpoint.hostname === "localhost";
++    const pageIsLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
++    if (endpointIsLocal && !pageIsLocal) return false;
++    if (window.location.protocol === "https:" && endpoint.protocol !== "https:") return false;
++    return endpoint.protocol === "http:" || endpoint.protocol === "https:";
++  } catch {
++    return false;
++  }
++};
++
+ /** Builds the full InvoiceRegistryProviders bundle for a browser session, given a connected wallet. */
+ export const buildBrowserProviders = async (
+   connectedApi: ConnectedAPI,
+@@ -103,13 +130,19 @@ export const buildBrowserProviders = async (
+   const indexerWsUri = walletConfig?.indexerWsUri ?? network.indexerWS;
+   let proofProvider: ProofProvider;
+   try {
+-    const provingProvider = await connectedApi.getProvingProvider({
+-      getZKIR: (location) => zkConfigProvider.getZKIR(location as InvoiceRegistryCircuits),
+-      getProverKey: (location) => zkConfigProvider.getProverKey(location as InvoiceRegistryCircuits),
+-      getVerifierKey: (location) => zkConfigProvider.getVerifierKey(location as InvoiceRegistryCircuits),
+-    });
++    const provingProvider = await withDeadline(
++      connectedApi.getProvingProvider(zkConfigProvider.asKeyMaterialProvider()),
++      15_000,
++      "Wallet proving service did not respond within 15 seconds.",
++    );
+     proofProvider = createProofProvider(provingProvider);
+-  } catch {
++  } catch (walletProofError) {
++    if (!browserCanReachProofServer(proofServer)) {
++      const detail = walletProofError instanceof Error ? ` (${walletProofError.message})` : "";
++      throw new Error(
++        `The wallet proving service is unavailable${detail}. Reconnect Lace or 1AM, or configure NEXT_PUBLIC_PROOF_SERVER_URL with a browser-reachable HTTPS proof server.`,
++      );
++    }
+     proofProvider = httpClientProofProvider(proofServer, zkConfigProvider);
+   }
+ 
+diff --git a/packages/sdk/src/contract.ts b/packages/sdk/src/contract.ts
+index 30a13c4..88bdd01 100644
+--- a/packages/sdk/src/contract.ts
++++ b/packages/sdk/src/contract.ts
+@@ -29,11 +29,13 @@
+ 
+ import { CompiledContract } from "@midnight-ntwrk/compact-js";
+ import {
++  CallTxFailedError,
++  createCallTxOptions,
+   deployContract,
+   findDeployedContract,
+-  withContractScopedTransaction,
+-  type TransactionContext,
++  submitCallTxAsync,
+ } from "@midnight-ntwrk/midnight-js/contracts";
++import { asContractAddress, SucceedEntirely } from "@midnight-ntwrk/midnight-js/types";
+ import { InvoiceRegistry, witnesses, type NivraPrivateState } from "@nivra/contracts";
+ import { createNivraPrivateState } from "@nivra/contracts";
+ import {
+@@ -99,7 +101,8 @@ export const settleInvoiceFromPaymentLink = async (
+   zkConfigPath: string,
+   payload: PaymentLinkPayload,
+   payerReceiptSecret: Uint8Array,
+-) => {
++  options: InvoiceSettlementOptions = {},
++): Promise<InvoiceSettlementResult> => {
+   if (!payload.merchantPayoutKey || !payload.merchantEncryptionPublicKey) {
+     throw new Error("This is an older payment link without a merchant payout key. Ask the merchant for a new link.");
+   }
+@@ -119,7 +122,8 @@ export const settleInvoiceFromPaymentLink = async (
+       value: amount,
+     },
+   };
+-  const deployed = await joinInvoiceRegistry(
++  options.onProgress?.("joining");
++  await joinInvoiceRegistry(
+     providers,
+     zkConfigPath,
+     payload.contractAddress,
+@@ -127,27 +131,106 @@ export const settleInvoiceFromPaymentLink = async (
+     InvoiceRegistryPayerPrivateStateId,
+   );
+ 
+-  return withContractScopedTransaction<InvoiceRegistryContractType>(
+-    providers,
+-    async (tx) => {
+-      await deployed.callTx.settleInvoice(
+-        tx as unknown as TransactionContext<InvoiceRegistryContractType, "settleInvoice">,
+-        hexToBytes(payload.merchantCommitment),
+-        amount,
+-        tokenColor,
+-        BigInt(payload.expiry),
+-        hexToBytes(payload.metadataHash),
+-        hexToBytes(payload.invoiceSecret),
+-        hexToBytes(payload.nonce),
+-      );
++  const compiledContract = compileInvoiceRegistry(zkConfigPath);
++  const callOptions = createCallTxOptions(
++    compiledContract,
++    "settleInvoice",
++    asContractAddress(payload.contractAddress),
++    InvoiceRegistryPayerPrivateStateId,
++    new Map([[payload.merchantPayoutKey, payload.merchantEncryptionPublicKey]]),
++    [
++      hexToBytes(payload.merchantCommitment),
++      amount,
++      tokenColor,
++      BigInt(payload.expiry),
++      hexToBytes(payload.metadataHash),
++      hexToBytes(payload.invoiceSecret),
++      hexToBytes(payload.nonce),
++    ],
++  );
++
++  const progressProviders: InvoiceRegistryProviders = {
++    ...providers,
++    proofProvider: {
++      proveTx: async (tx, config) => {
++        options.onProgress?.("proving");
++        return providers.proofProvider.proveTx(tx, config);
++      },
+     },
+-    {
+-      scopeName: "nivra-settle-invoice",
+-      additionalCoinEncPublicKeyMappings: new Map([
+-        [payload.merchantPayoutKey, payload.merchantEncryptionPublicKey],
+-      ]),
++    walletProvider: {
++      ...providers.walletProvider,
++      balanceTx: async (tx, ttl) => {
++        options.onProgress?.("awaiting-wallet");
++        return providers.walletProvider.balanceTx(tx, ttl);
++      },
+     },
+-  );
++    midnightProvider: {
++      submitTx: async (tx) => {
++        options.onProgress?.("submitting");
++        return providers.midnightProvider.submitTx(tx);
++      },
++    },
++  };
++
++  const { txId, callTxData } = await submitCallTxAsync(progressProviders, callOptions);
++  options.onProgress?.("confirming");
++
++  const finalization = providers.publicDataProvider.watchForTxData(txId).then(async (finalized) => {
++    if (finalized.status !== SucceedEntirely) {
++      throw new CallTxFailedError(finalized, "settleInvoice");
++    }
++    await providers.privateStateProvider.set(
++      InvoiceRegistryPayerPrivateStateId,
++      callTxData.private.nextPrivateState,
++    );
++    return finalized;
++  });
++
++  const confirmationTimeoutMs = options.confirmationTimeoutMs ?? 60_000;
++  const finalized = await settleWithin(finalization, confirmationTimeoutMs);
++  if (finalized === undefined) {
++    // Keep the watcher alive while this tab remains open so a delayed success still
++    // advances the payer's private state. The transaction has already been submitted;
++    // callers must show it as pending rather than inviting an unsafe duplicate payment.
++    void finalization.catch(() => undefined);
++    return { public: { txId }, confirmation: "pending" };
++  }
++
++  return { public: finalized, confirmation: "confirmed" };
++};
++
++export type InvoiceSettlementStage =
++  | "joining"
++  | "proving"
++  | "awaiting-wallet"
++  | "submitting"
++  | "confirming";
++
++export type InvoiceSettlementOptions = {
++  /** Bounds only the indexer confirmation wait, after the wallet has submitted the transaction. */
++  readonly confirmationTimeoutMs?: number;
++  readonly onProgress?: (stage: InvoiceSettlementStage) => void;
++};
++
++export type InvoiceSettlementResult = {
++  readonly public: { readonly txId: string };
++  readonly confirmation: "confirmed" | "pending";
++};
++
++/** Returns `undefined` after the deadline without cancelling the operation in progress. */
++export const settleWithin = async <T>(operation: Promise<T>, timeoutMs: number): Promise<T | undefined> => {
++  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) throw new Error("Timeout must be a non-negative finite number.");
++  let timer: ReturnType<typeof setTimeout> | undefined;
++  try {
++    return await Promise.race([
++      operation,
++      new Promise<undefined>((resolve) => {
++        timer = setTimeout(() => resolve(undefined), timeoutMs);
++      }),
++    ]);
++  } finally {
++    if (timer !== undefined) clearTimeout(timer);
++  }
+ };
+ 
+ /** Reads the current public ledger state of a deployed InvoiceRegistry, or null if nothing is deployed there. */
+diff --git a/packages/sdk/src/test/contract.test.ts b/packages/sdk/src/test/contract.test.ts
+index 83cdfc9..64512a1 100644
+--- a/packages/sdk/src/test/contract.test.ts
++++ b/packages/sdk/src/test/contract.test.ts
+@@ -17,7 +17,7 @@ import {
+   type CircuitContext,
+ } from "@midnight-ntwrk/compact-runtime";
+ import { InvoiceRegistry, createNivraPrivateState, witnesses, type NivraPrivateState } from "@nivra/contracts";
+-import { getInvoiceStatus, verifyReceipt } from "../contract.js";
++import { getInvoiceStatus, settleWithin, verifyReceipt } from "../contract.js";
+ import { buildPaymentLinkPayload, verifyInvoicePaymentLink } from "../payment-link.js";
+ import { computeMerchantCommitment } from "../commitments.js";
+ import type { InvoiceRegistryProviders } from "../common-types.js";
+@@ -60,6 +60,22 @@ const sampleInvoice = () => ({
+   nonce: randomBytes(32),
+ });
+ 
++describe("settleWithin", () => {
++  it("returns a result that arrives before the confirmation deadline", async () => {
++    await expect(settleWithin(Promise.resolve("confirmed"), 100)).resolves.toBe("confirmed");
++  });
++
++  it("returns undefined when indexer confirmation has not arrived by the deadline", async () => {
++    await expect(settleWithin(new Promise<string>(() => undefined), 5)).resolves.toBeUndefined();
++  });
++
++  it("rejects invalid timeout values", async () => {
++    await expect(settleWithin(Promise.resolve("confirmed"), -1)).rejects.toThrow(
++      "Timeout must be a non-negative finite number.",
++    );
++  });
++});
++
+ describe("getInvoiceStatus", () => {
+   it("returns the real on-chain state for a registered invoice", () => {
+     const merchantSecret = randomBytes(32);

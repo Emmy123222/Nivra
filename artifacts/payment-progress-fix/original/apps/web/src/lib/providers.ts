@@ -32,33 +32,6 @@ import type { NivraPrivateState } from "@nivra/contracts";
 import { browserPrivateStateProvider } from "./private-state-provider";
 import type { NetworkConfig } from "./network";
 
-const withDeadline = async <T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-};
-
-const browserCanReachProofServer = (proofServer: string): boolean => {
-  try {
-    const endpoint = new URL(proofServer, window.location.origin);
-    const endpointIsLocal = endpoint.hostname === "127.0.0.1" || endpoint.hostname === "localhost";
-    const pageIsLocal = window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost";
-    if (endpointIsLocal && !pageIsLocal) return false;
-    if (window.location.protocol === "https:" && endpoint.protocol !== "https:") return false;
-    return endpoint.protocol === "http:" || endpoint.protocol === "https:";
-  } catch {
-    return false;
-  }
-};
-
 /** Builds the full InvoiceRegistryProviders bundle for a browser session, given a connected wallet. */
 export const buildBrowserProviders = async (
   connectedApi: ConnectedAPI,
@@ -130,19 +103,13 @@ export const buildBrowserProviders = async (
   const indexerWsUri = walletConfig?.indexerWsUri ?? network.indexerWS;
   let proofProvider: ProofProvider;
   try {
-    const provingProvider = await withDeadline(
-      connectedApi.getProvingProvider(zkConfigProvider.asKeyMaterialProvider()),
-      15_000,
-      "Wallet proving service did not respond within 15 seconds.",
-    );
+    const provingProvider = await connectedApi.getProvingProvider({
+      getZKIR: (location) => zkConfigProvider.getZKIR(location as InvoiceRegistryCircuits),
+      getProverKey: (location) => zkConfigProvider.getProverKey(location as InvoiceRegistryCircuits),
+      getVerifierKey: (location) => zkConfigProvider.getVerifierKey(location as InvoiceRegistryCircuits),
+    });
     proofProvider = createProofProvider(provingProvider);
-  } catch (walletProofError) {
-    if (!browserCanReachProofServer(proofServer)) {
-      const detail = walletProofError instanceof Error ? ` (${walletProofError.message})` : "";
-      throw new Error(
-        `The wallet proving service is unavailable${detail}. Reconnect Lace or 1AM, or configure NEXT_PUBLIC_PROOF_SERVER_URL with a browser-reachable HTTPS proof server.`,
-      );
-    }
+  } catch {
     proofProvider = httpClientProofProvider(proofServer, zkConfigProvider);
   }
 

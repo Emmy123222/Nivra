@@ -40,6 +40,8 @@ export default function CreateInvoicePage() {
   useEffect(() => {
     if (!connectedApi) return;
     let cancelled = false;
+    setLoadingTokens(true);
+    setBalanceError(null);
     void connectedApi
       .getShieldedBalances()
       .then((balances) => {
@@ -217,15 +219,7 @@ export default function CreateInvoicePage() {
         {balanceError && (
           <div className="rounded-lg bg-[var(--warning-bg)] px-4 py-3 text-xs leading-5 text-[var(--warning)]">
             <p>{balanceError}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setLoadingTokens(true);
-                setBalanceError(null);
-                setBalanceRetry((value) => value + 1);
-              }}
-              className="mt-1 font-semibold underline"
-            >
+            <button type="button" onClick={() => setBalanceRetry((value) => value + 1)} className="mt-1 font-semibold underline">
               Retry wallet lookup
             </button>
           </div>

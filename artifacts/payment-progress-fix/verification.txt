@@ -1,0 +1,136 @@
+$ npm test --workspace=@nivra/sdk
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+
+ Test Files  5 passed (5)
+      Tests  33 passed (33)
+   Start at  15:47:38
+   Duration  1.52s (transform 745ms, setup 0ms, import 3.32s, tests 609ms, environment 1ms)
+
+exit=0
+
+$ npm run lint --workspace=web
+
+> web@0.1.0 lint
+> eslint
+
+exit=0
+
+$ npm run typecheck --workspace=web
+
+> web@0.1.0 typecheck
+> tsc --noEmit
+
+exit=0
+
+$ npm run build --workspace=web
+
+> web@0.1.0 prebuild
+> npm --prefix ../.. run build --workspace=@nivra/contracts && npm --prefix ../.. run build --workspace=@nivra/sdk && node scripts/copy-zk-assets.mjs
+
+
+> @nivra/contracts@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json && cp -R src/managed dist/managed
+
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+Copied ZK assets: /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/keys -> /home/emmanuel-ogheneovo/nivra/apps/web/public/keys, /home/emmanuel-ogheneovo/nivra/contracts/src/managed/invoice_registry/zkir/*.bzkir -> /home/emmanuel-ogheneovo/nivra/apps/web/public/zkir
+
+> web@0.1.0 build
+> next build --webpack
+
+▲ Next.js 16.3.5 (webpack)
+✓ Running next.config.ts took 24ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.6s
+  Running TypeScript ...
+  Finished TypeScript in 3.4s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/9) ...
+  Generating static pages using 7 workers (2/9) 
+  Generating static pages using 7 workers (4/9) 
+  Generating static pages using 7 workers (6/9) 
+✓ Generating static pages using 7 workers (9/9) in 828ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /checkout
+├ ○ /connect
+├ ○ /dashboard
+├ ○ /dashboard/create
+├ ƒ /dashboard/invoices/[commitment]
+└ ○ /receipt
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+exit=0
+
+$ BASE_URL=http://127.0.0.1:3000 npm run test:e2e
+
+> nivra@0.1.0 test:e2e
+> node tests/e2e/browser-e2e.mjs
+
+PASS  landing responds (HTTP 200)
+PASS  landing hero renders
+PASS  landing primary CTA routes to dashboard
+PASS  dashboard responds (HTTP 200)
+PASS  dashboard marks sample records as preview
+PASS  missing wallet message is accurate
+PASS  dashboard paid filter works (rows=2)
+PASS  create route responds (HTTP 200)
+PASS  create route blocks disconnected use
+PASS  connect route responds (HTTP 200)
+PASS  connect route explains missing connector
+PASS  empty checkout is handled
+PASS  valid payment fragment renders
+PASS  checkout shows exact amount
+PASS  unverified invoice is never presented as payable
+PASS  checkout reparses changed fragments
+PASS  checkout rejects semantic field corruption
+PASS  valid receipt fragment waits for chain verification
+PASS  receipt reparses changed fragments
+PASS  current settle prover is served (HTTP 200)
+PASS  removed circuit asset is not shipped (HTTP 404)
+PASS  dashboard has no page-level mobile overflow (overflow=0px)
+PASS  wallet picker opens before connector access
+PASS  wallet picker offers Lace
+PASS  wallet picker offers 1AM
+PASS  selected 1AM connector is used instead of the first wallet
+PASS  Lace-compatible connector works without hintUsage
+PASS  browser loads compiled ZK assets
+PASS  connected merchant is offered registry deployment
+PASS  registry deployment errors are shown in the UI (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  ledger WebAssembly initializes before deployment (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  1AM Bech32m payout key reaches transaction construction (Registry setup stopped: Unable to deserialize Transaction. Error: expected header tag 'midnight:transaction[v9](signature[v1],proof,pedersen-schnorr[v1]):', got 'midnight:transaction[v9](signature[v1],proof,embedded-fr[v1]):�����')
+PASS  connected navigation opens invoice form
+PASS  invoice form reads shielded wallet balances
+PASS  invoice form rejects an invalid amount before deployment
+PASS  hosted 1AM connection tolerates missing wallet configuration
+PASS  hosted wallet RPCs are ordered and advisory hint failures do not abort connection
+PASS  invoice form remains usable when wallet balance lookup fails
+PASS  wallet balance failure is shown as recoverable guidance
+PASS  raw wallet request error is not shown
+PASS  browser emitted no uncaught errors
+
+41 browser checks passed; report: artifacts/e2e-test/browser-report.json
+exit=0
+
+$ ! grep -q 'getShieldedBalances' apps/web/src/app/checkout/page.tsx
+exit=0
+
+$ ROOT=TEMP artifacts/payment-progress-fix/rollback.sh; cmp all five restored files
+exit=0
