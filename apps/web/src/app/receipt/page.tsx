@@ -18,11 +18,13 @@ export default function ReceiptPage() {
   const [state, setState] = useState<ReceiptState>({ step: "loading" });
 
   useEffect(() => {
-    let cancelled = false;
-    void (async () => {
+    let generation = 0;
+    const loadLink = () => {
+      const currentGeneration = ++generation;
+      setState({ step: "loading" });
       const hash = window.location.hash;
       if (!hash || hash.length <= 1) {
-        if (!cancelled) setState({ step: "no-link" });
+        if (currentGeneration === generation) setState({ step: "no-link" });
         return;
       }
 
@@ -30,14 +32,18 @@ export default function ReceiptPage() {
       try {
         payload = parseReceiptLinkUrl(window.location.href);
       } catch (e) {
-        if (!cancelled) setState({ step: "invalid", reason: e instanceof Error ? e.message : String(e) });
+        if (currentGeneration === generation) setState({ step: "invalid", reason: e instanceof Error ? e.message : String(e) });
         return;
       }
 
-      if (!cancelled) setState({ step: "checking", payload });
-    })();
+      if (currentGeneration === generation) setState({ step: "checking", payload });
+    };
+
+    loadLink();
+    window.addEventListener("hashchange", loadLink);
     return () => {
-      cancelled = true;
+      generation += 1;
+      window.removeEventListener("hashchange", loadLink);
     };
   }, []);
 

@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { bytesToHex } from "@nivra/sdk";
-import { encodeRawTokenType } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import { useWallet } from "@/lib/wallet-context";
 import { addStoredInvoice } from "@/lib/invoice-store";
 
@@ -38,7 +37,9 @@ export default function CreateInvoicePage() {
         if (cancelled) return;
         const tokens = Object.entries(balances)
           .filter(([, balance]) => balance > BigInt(0))
-          .map(([type, balance]) => ({ type, balance, encoded: bytesToHex(encodeRawTokenType(type)) }));
+          // DApp Connector token types are already hex-encoded raw token types.
+          // Avoid round-tripping them through the ledger WASM just to display/select one.
+          .map(([type, balance]) => ({ type, balance, encoded: type.toLowerCase() }));
         setWalletTokens(tokens);
         setTokenColor((current) => current || tokens[0]?.encoded || "");
       })

@@ -33,6 +33,16 @@ describe("receipt links", () => {
     expect(() => decodeReceiptLinkPayload("not-valid!!!")).toThrow();
   });
 
+  it("rejects receipt JSON with incorrectly sized commitment fields", () => {
+    const token = Buffer.from(JSON.stringify({
+      version: 1,
+      contractAddress: "0xaddr",
+      invoiceCommitment: "ab",
+      payerReceiptSecret: "22".repeat(32),
+    })).toString("base64url");
+    expect(() => decodeReceiptLinkPayload(token)).toThrow("Malformed receipt link payload");
+  });
+
   it("verifies a genuine receipt end to end against a real settled invoice", async () => {
     const merchantSecret = randomBytes(32);
     const merchantNonce = randomBytes(32);

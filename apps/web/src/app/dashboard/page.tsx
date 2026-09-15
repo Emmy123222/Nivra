@@ -33,6 +33,7 @@ export default function DashboardPage() {
   } = useWallet();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [filter, setFilter] = useState<InvoiceFilter>("all");
   const connected = status === "connected";
 
@@ -83,6 +84,18 @@ export default function DashboardPage() {
     return rows.filter((row) => row.state === target);
   }, [rows, filter]);
 
+  const setUpRegistry = async () => {
+    setSetupError(null);
+    try {
+      await ensureContract();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // Midnight errors can embed minified browser stacks and several repeated
+      // circuit failures. Keep the actionable first line instead of flooding UI.
+      setSetupError(message.split(/\s+at\s+/u, 1)[0]?.slice(0, 360) ?? "Registry setup failed.");
+    }
+  };
+
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-5 py-8 sm:px-8 sm:py-10">
       <header className="fade-up flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -115,7 +128,7 @@ export default function DashboardPage() {
         <section className="fade-up mt-8 flex flex-col gap-5 rounded-2xl border border-[rgba(199,255,94,.18)] bg-[linear-gradient(100deg,rgba(199,255,94,.095),rgba(122,231,219,.035))] p-5 sm:flex-row sm:items-center sm:justify-between" style={{ animationDelay: "50ms" }}>
           <div className="flex items-start gap-4">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent)] text-[var(--accent-ink)]"><WalletIcon /></span>
-            <div><p className="text-sm font-semibold">{walletAvailable === false ? "Lace wallet is available for Midnight" : "Connect to open your live workspace"}</p><p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{walletAvailable === false ? "This browser does not have a compatible wallet extension. Install Lace, unlock it, then reload Nivra." : "The information below is a clearly marked preview. Your real invoices appear after connection."}</p></div>
+            <div><p className="text-sm font-semibold">{walletAvailable === false ? "Lace wallet is required for Midnight" : "Connect to open your live workspace"}</p><p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{walletAvailable === false ? "This browser does not have a compatible wallet extension. Install Lace, unlock it, then reload Nivra." : "The information below is a clearly marked preview. Your real invoices appear after connection."}</p></div>
           </div>
           <a href={LACE_WALLET_URL} target="_blank" rel="noreferrer" className="shrink-0 text-xs font-semibold text-[var(--accent)] hover:underline">Get Lace for Midnight ↗</a>
         </section>
@@ -124,10 +137,11 @@ export default function DashboardPage() {
       {connected && !contract && (
         <section className="fade-up mt-8 flex flex-col gap-5 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-4"><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[rgba(199,255,94,.1)] text-[var(--accent)]"><RegistryIcon /></span><div><p className="text-sm font-semibold">Finish setting up your private registry</p><p className="mt-1 text-xs text-[var(--text-muted)]">One on-chain setup creates your merchant workspace. Your credential stays in this browser.</p></div></div>
-          <button type="button" onClick={() => void ensureContract()} disabled={deployingContract} className="btn-primary shrink-0 rounded-full px-5 py-2.5 text-xs font-semibold">{deployingContract ? "Deploying registry…" : "Set up registry"}</button>
+          <button type="button" onClick={() => void setUpRegistry()} disabled={deployingContract} className="btn-primary shrink-0 rounded-full px-5 py-2.5 text-xs font-semibold">{deployingContract ? "Deploying registry…" : "Set up registry"}</button>
         </section>
       )}
 
+      {setupError && <p role="alert" className="mt-5 rounded-xl bg-[var(--danger-bg)] px-4 py-3 text-xs text-[var(--danger)]">Registry setup stopped: {setupError}</p>}
       {loadError && <p className="mt-5 rounded-xl bg-[var(--warning-bg)] px-4 py-3 text-xs text-[var(--warning)]">On-chain refresh paused: {loadError}</p>}
 
       <section className="fade-up mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" style={{ animationDelay: "80ms" }}>

@@ -73,6 +73,24 @@ describe("payment links", () => {
     expect(() => decodePaymentLinkPayload("not-valid-base64url-json!!!")).toThrow();
   });
 
+  it("rejects structurally valid JSON with invalid numeric and Bytes<32> fields", () => {
+    const valid = buildPaymentLinkPayload(
+      "0xaddr",
+      randomBytes(32),
+      sampleInvoiceForLink(),
+      payoutKey,
+      encryptionKey,
+    );
+    const invalidAmount = { ...valid, amount: "not-a-number" };
+    const invalidToken = { ...valid, tokenColor: "ab" };
+    const invalidPayoutKey = { ...valid, merchantPayoutKey: "" };
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+
+    expect(() => decodePaymentLinkPayload(encode(invalidAmount))).toThrow("Malformed payment link payload");
+    expect(() => decodePaymentLinkPayload(encode(invalidToken))).toThrow("Malformed payment link payload");
+    expect(() => decodePaymentLinkPayload(encode(invalidPayoutKey))).toThrow("Malformed payment link payload");
+  });
+
   it("rejects a URL with no fragment", () => {
     expect(() => parsePaymentLinkUrl("https://pay.example/checkout")).toThrow("no fragment");
   });

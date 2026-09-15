@@ -38,7 +38,12 @@ export const buildBrowserProviders = async (
   network: NetworkConfig,
 ): Promise<InvoiceRegistryProviders> => {
   const zkConfigPath = typeof window !== "undefined" ? window.location.origin : "";
-  const zkConfigProvider = new FetchZkConfigProvider<InvoiceRegistryCircuits>(zkConfigPath);
+  // FetchZkConfigProvider stores the supplied function and calls it as a plain
+  // callback. Chromium requires Window.fetch to keep its Window receiver, so
+  // passing a bound function avoids the otherwise opaque "Illegal invocation"
+  // failure when the contract runtime loads verifier keys in production.
+  const browserFetch = globalThis.fetch.bind(globalThis);
+  const zkConfigProvider = new FetchZkConfigProvider<InvoiceRegistryCircuits>(zkConfigPath, browserFetch);
   await connectedApi.hintUsage([
     "getConfiguration",
     "getShieldedAddresses",

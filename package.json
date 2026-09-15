@@ -9,10 +9,20 @@
     "packages/*",
     "apps/*"
   ],
+  "overrides": {
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  },
   "scripts": {
     "compact": "npm run compact --workspace=contracts",
     "build": "npm run compact && npm run build --workspace=contracts && npm run build --workspace=@nivra/sdk --if-present",
     "test": "npm run build && npm run test --workspaces --if-present",
-    "demo": "npm run build && node scripts/demo.mjs"
+    "demo": "npm run build && node scripts/demo.mjs",
+    "test:e2e": "node tests/e2e/browser-e2e.mjs"
+  },
+  "devDependencies": {
+    "@midnight-ntwrk/ledger-v8": "8.1.0",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0",
+    "playwright-core": "^1.55.0"
   }
 }

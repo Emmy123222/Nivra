@@ -101,20 +101,28 @@ export const encodePaymentLinkPayload = (payload: PaymentLinkPayload): string =>
 /** Decodes a token produced by `encodePaymentLinkPayload`. Throws if it isn't well-formed. */
 export const decodePaymentLinkPayload = (token: string): PaymentLinkPayload => {
   const parsed: unknown = JSON.parse(new TextDecoder().decode(base64UrlToBytes(token)));
+  const value = parsed as Partial<Record<keyof PaymentLinkPayload, unknown>>;
+  const isBytes32 = (input: unknown): input is string =>
+    typeof input === "string" && /^[0-9a-fA-F]{64}$/.test(input);
+  const isUint64 = (input: unknown, positive = false): input is string => {
+    if (typeof input !== "string" || !/^(0|[1-9][0-9]*)$/.test(input)) return false;
+    const n = BigInt(input);
+    return n <= (BigInt(2) ** BigInt(64) - BigInt(1)) && (!positive || n > BigInt(0));
+  };
   if (
     typeof parsed !== "object" ||
     parsed === null ||
-    (parsed as { version?: unknown }).version !== 1 ||
-    typeof (parsed as { contractAddress?: unknown }).contractAddress !== "string" ||
-    typeof (parsed as { merchantCommitment?: unknown }).merchantCommitment !== "string" ||
-    typeof (parsed as { amount?: unknown }).amount !== "string" ||
-    typeof (parsed as { tokenColor?: unknown }).tokenColor !== "string" ||
-    typeof (parsed as { expiry?: unknown }).expiry !== "string" ||
-    typeof (parsed as { metadataHash?: unknown }).metadataHash !== "string" ||
-    typeof (parsed as { invoiceSecret?: unknown }).invoiceSecret !== "string" ||
-    typeof (parsed as { nonce?: unknown }).nonce !== "string" ||
-    typeof (parsed as { merchantPayoutKey?: unknown }).merchantPayoutKey !== "string" ||
-    typeof (parsed as { merchantEncryptionPublicKey?: unknown }).merchantEncryptionPublicKey !== "string"
+    value.version !== 1 ||
+    typeof value.contractAddress !== "string" || value.contractAddress.length === 0 ||
+    !isBytes32(value.merchantCommitment) ||
+    !isUint64(value.amount, true) ||
+    !isBytes32(value.tokenColor) ||
+    !isUint64(value.expiry) ||
+    !isBytes32(value.metadataHash) ||
+    !isBytes32(value.invoiceSecret) ||
+    !isBytes32(value.nonce) ||
+    !isBytes32(value.merchantPayoutKey) ||
+    !isBytes32(value.merchantEncryptionPublicKey)
   ) {
     throw new Error("Malformed payment link payload");
   }

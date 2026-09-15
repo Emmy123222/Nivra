@@ -14,7 +14,6 @@ import {
   buildReceiptLinkUrl,
 } from "@nivra/sdk";
 import { useWallet } from "@/lib/wallet-context";
-import { encodeRawTokenType } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 
 /** Wraps the SDK's `verifyInvoicePaymentLink` so "no wallet yet" / an unreachable indexer reads as "unverified", not a crash. */
 const checkOnChain = async (
@@ -45,15 +44,17 @@ export default function CheckoutPage() {
   // The payment link's private fields live only in the URL fragment (never sent to any
   // server) — see packages/sdk/src/payment-link.ts for why. `window.location.hash` is
   // only available client-side, hence this effect rather than reading it during render.
-  // The whole body runs as one async task so every branch's setState happens from an
-  // async continuation rather than synchronously inside the effect callback itself.
+  // Re-run when the fragment changes so opening a second invoice in the same tab never
+  // leaves the previous invoice's amount or commitment on screen.
   useEffect(() => {
-    let cancelled = false;
+    let generation = 0;
 
-    void (async () => {
+    const loadLink = () => void (async () => {
+      const currentGeneration = ++generation;
+      setState({ step: "loading" });
       const hash = window.location.hash;
       if (!hash || hash.length <= 1) {
-        if (!cancelled) setState({ step: "no-link" });
+        if (currentGeneration === generation) setState({ step: "no-link" });
         return;
       }
 
@@ -61,22 +62,26 @@ export default function CheckoutPage() {
       try {
         payload = parsePaymentLinkUrl(window.location.href);
       } catch (e) {
-        if (!cancelled) setState({ step: "invalid", reason: e instanceof Error ? e.message : String(e) });
+        if (currentGeneration === generation) setState({ step: "invalid", reason: e instanceof Error ? e.message : String(e) });
         return;
       }
 
-      const { commitment: commitmentBytes, onChain } = await checkOnChain(providers, payload);
-      const commitment = bytesToHex(commitmentBytes);
-      if (!cancelled) setState({ step: "ready", payload, commitment, onChain });
+      try {
+        const { commitment: commitmentBytes, onChain } = await checkOnChain(providers, payload);
+        const commitment = bytesToHex(commitmentBytes);
+        if (currentGeneration === generation) setState({ step: "ready", payload, commitment, onChain });
+      } catch (e) {
+        if (currentGeneration === generation) setState({ step: "invalid", reason: e instanceof Error ? e.message : String(e) });
+      }
     })();
 
+    loadLink();
+    window.addEventListener("hashchange", loadLink);
     return () => {
-      cancelled = true;
+      generation += 1;
+      window.removeEventListener("hashchange", loadLink);
     };
-    // Intentionally mount-only: re-verifying against `providers` happens via the
-    // "Connect wallet to pay" -> pay() path, not by re-running link parsing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [providers]);
 
   const pay = async () => {
     if (state.step !== "ready") return;
@@ -92,7 +97,8 @@ export default function CheckoutPage() {
       if (!connectedApi) throw new Error("Wallet connection was lost. Reconnect and try again.");
       const balances = await connectedApi.getShieldedBalances();
       const matchingBalance = Object.entries(balances).find(
-        ([type]) => bytesToHex(encodeRawTokenType(type)) === payload.tokenColor,
+        // DApp Connector token keys are already hex-encoded raw token types.
+        ([type]) => type.toLowerCase() === payload.tokenColor.toLowerCase(),
       )?.[1] ?? BigInt(0);
       if (matchingBalance < BigInt(payload.amount)) {
         throw new Error(`Insufficient shielded balance. Required ${payload.amount}; available ${matchingBalance.toString()}.`);

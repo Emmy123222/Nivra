@@ -26,8 +26,8 @@ reproducible test exists for it.
 | Contract tests (circuit simulation) | TESTED | `contracts/src/test/invoice_registry.test.ts`, 21/21 passing; run via `npm test --workspace=contracts` |
 | SDK: commitment/verification layer (`@nivra/sdk`) | TESTED | merchant/invoice/payout/receipt commitments are cross-checked against the compiled contract byte-for-byte |
 | SDK: contract deployment/circuit-call layer | DONE | `packages/sdk/src/{common-types,providers,contract}.ts`; typechecks cleanly against the real installed `@midnight-ntwrk/midnight-js@4.1.1`/`compact-js@2.5.1` packages; not run end-to-end (no proof server/live network in this sandbox) — see below |
-| Frontend (`apps/web`) | DONE | Next.js 16 + Tailwind app; all 7 product routes (landing, dashboard, invoice detail, create, checkout, connect, receipt) compile in the production build; core routes pass HTTP smoke tests; see below |
-| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 24 SDK tests total, including cross-invoice receipt replay and payout-key substitution |
+| Frontend (`apps/web`) | TESTED | Next.js 16 + Tailwind app; all 7 product routes compile in the production build and 31 browser E2E checks pass against `next start`; see below |
+| SDK: `getInvoiceStatus`/`verifyReceipt`/`verifyInvoicePaymentLink`/receipt links/`connectWallet` | TESTED | 26 SDK tests total, including cross-invoice receipt replay, payout-key substitution, and malformed semantic fields |
 | Security review (Phase 27) | TESTED | `docs/SECURITY_REVIEW.md`; one real Low-severity gap found and fixed (zero-amount invoices), one test-coverage gap closed (exact expiry boundary), full attack-category checklist with evidence |
 
 ## Frontend (`apps/web`)
@@ -68,18 +68,17 @@ real on-chain membership check (`/checkout`).
   validates the network ID, restores an existing merchant registry on reconnect, and
   keeps merchant/payer private states under separate IDs.
 
-**Verification performed:** `npx tsc --noEmit` and `npx eslint src` both clean.
-`npm run dev` started successfully; all 5 main routes (`/`, `/dashboard`,
-`/dashboard/create`, `/checkout`, `/connect`) returned HTTP 200 and were loaded in a
-real headless Chromium via Playwright with **zero console or page errors**. The
-wallet-connect failure path and the checkout page's payment-link parsing/display were
-each exercised end-to-end with a real generated link/real connect attempt and
-confirmed to render the correct, honest state (screenshots taken, not just HTTP
-status codes). Connected-wallet states (dashboard with invoices, successful
-create-invoice submission) could not be exercised — there is no Midnight wallet
-extension available in this sandbox to connect through.
+**Verification performed:** typecheck and ESLint are clean; `next build --webpack`
+completes; and `npm run test:e2e` passes **31/31 browser checks** against the
+production server with zero console/page errors. The suite covers all public routes,
+desktop/mobile rendering, disconnected guards, dashboard filtering, payment/receipt
+fragment changes, semantic payload rejection, required prover assets, a mock DApp
+Connector handshake, real browser loading of compiled verifier/ZKIR assets, shielded
+balance display, and form validation. Contract transaction construction reaches the
+wallet boundary; an actual Preprod submission still needs a real unlocked wallet,
+wallet approval, and reachable network services.
 
-### Three real bugs found and fixed while getting the frontend running
+### Real bugs found and fixed while getting the frontend running
 
 1. **SDK barrel-export architecture bug.** `@nivra/sdk`'s single flat `index.ts`
    barrel re-exported both browser-safe code (commitments, payment links) and
@@ -95,8 +94,8 @@ extension available in this sandbox to connect through.
    default export, no named `WebSocket` export. Turbopack's strict ESM analysis
    refused to build this. `midnightntwrk/example-bboard`'s own Vite-based frontend
    depends on `@originjs/vite-plugin-commonjs`, almost certainly to paper over this
-   same class of issue for Vite. Fixed for Turbopack with a `turbopack.resolveAlias`
-   in `next.config.ts` pointing `isomorphic-ws` at a two-line local shim
+   same class of issue for Vite. Fixed with Turbopack and Webpack aliases in
+   `next.config.ts` pointing `isomorphic-ws` at a two-line local shim
    (`src/lib/isomorphic-ws-shim.ts`) exposing the browser's native `WebSocket` under
    both the default and named export shapes the real package's two builds use.
 3. **SSR/hydration bug from reading `localStorage` during render.** The invoice
@@ -108,6 +107,15 @@ extension available in this sandbox to connect through.
    `localStorage` inside a `useEffect` (client-only timing), with a `Loading…` state
    in between. All `invoice-store.ts` functions were also given `typeof window ===
    "undefined"` guards as defense in depth.
+4. **Stale URL-fragment state and unsafe link decoding.** Checkout and receipt pages
+   parsed only once on mount, so changing the fragment in an already-open tab left an
+   earlier invoice visible. They now subscribe to `hashchange`, and the SDK validates
+   every bytes32, Uint64, amount, key, and address field before rendering or using it.
+5. **Browser runtime initialization and unbound `fetch`.** Turbopack could call the
+   Midnight ledger helpers before their WebAssembly module was ready, and Chromium
+   rejects an unbound `window.fetch` stored as a callback. The app now builds with
+   Webpack's async-WASM pipeline and supplies a bound browser fetch to the ZK provider.
+   Browser E2E verifies that real compiled verifier and ZKIR files load successfully.
 
 These are recorded here rather than silently fixed and forgotten because each is a
 real, generalizable lesson about this specific toolchain (Next.js 16 + Turbopack +
@@ -145,7 +153,7 @@ build` → `dist/`, `exports`/`main`/`types` in `package.json`) specifically so
 `@nivra/sdk` could depend on it as a normal npm workspace package rather than reaching
 into another package's `src/`. Verified end-to-end from a clean checkout: `rm -rf
 contracts/src/managed contracts/dist packages/sdk/dist && npm test` (root script now
-runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 45/45 tests
+runs `compact` → build `contracts` → build `sdk` → test both workspaces) — 47/47 tests
 green.
 
 ## SDK: contract deployment/circuit-call layer

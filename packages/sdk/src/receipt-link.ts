@@ -52,13 +52,16 @@ export const encodeReceiptLinkPayload = (payload: ReceiptLinkPayload): string =>
 
 export const decodeReceiptLinkPayload = (token: string): ReceiptLinkPayload => {
   const parsed: unknown = JSON.parse(new TextDecoder().decode(base64UrlToBytes(token)));
+  const value = parsed as Partial<Record<keyof ReceiptLinkPayload, unknown>>;
+  const isBytes32 = (input: unknown): input is string =>
+    typeof input === "string" && /^[0-9a-fA-F]{64}$/.test(input);
   if (
     typeof parsed !== "object" ||
     parsed === null ||
-    (parsed as { version?: unknown }).version !== 1 ||
-    typeof (parsed as { contractAddress?: unknown }).contractAddress !== "string" ||
-    typeof (parsed as { invoiceCommitment?: unknown }).invoiceCommitment !== "string" ||
-    typeof (parsed as { payerReceiptSecret?: unknown }).payerReceiptSecret !== "string"
+    value.version !== 1 ||
+    typeof value.contractAddress !== "string" || value.contractAddress.length === 0 ||
+    !isBytes32(value.invoiceCommitment) ||
+    !isBytes32(value.payerReceiptSecret)
   ) {
     throw new Error("Malformed receipt link payload");
   }

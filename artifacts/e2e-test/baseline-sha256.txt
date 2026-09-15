@@ -1,0 +1,19 @@
+Baseline commit: 2e1fafb56102faea071bdeb80bd6d95ca3f9ca3d
+026eeda443b79cd1f0cc099bc950fd4701bb8ce80a4ad8b28ff5f1c381fad960  README.md
+6752a5d9da449aa9a3572d5daea69cce9bd7fb8fe63e2afffa9194ae56d24739  apps/web/next.config.ts
+b5fa2fa5ed524f428b40c9d1dfa493d2d4cd04ef93b8292f08a2374c11afe396  apps/web/package.json
+7710bd4184df650cb786b40ecc6e0652b83e23d5357fccae6131fb4852ae486f  apps/web/src/app/checkout/page.tsx
+c7e621c1630b2ca1547d0942fc9f4af80eeb2f1c84b830617828c5feb39a3353  apps/web/src/app/dashboard/create/page.tsx
+e1ee98d9d9d0c26869e4e6d9a302539002a74f14f7701bf2c1e2b25660dad15e  apps/web/src/app/dashboard/page.tsx
+73cd5a9dfa76a7524b9ab02d23ea18290697c1ca8ff974aa239a7261c39b9bcd  apps/web/src/app/receipt/page.tsx
+4679504dc7f7e9dbcf7f4716fd121d9ae1dddcdd49246813ce42a3dc9ac7b4f0  apps/web/src/lib/providers.ts
+4a29e2118fd462f7aed02e37fde11c1fab892ed6b80b536e5270956e1a3bca03  contracts/package.json
+8487837fbebf1c9fa00bbab5beb180242c69767158b8134df7928a7a14360ae9  docs/BUILD_STATUS.md
+37a4f0a6cfb1e1b1babf6599b5dff308d6ea7c3b2c4c0f2306ac5074518321b8  package-lock.json
+de54a33343279e4de57589ce9a5872a1d182f927841d305327ca58068891d262  package.json
+f55481ad3dfd0607466c403cdd97823d24957f26fe6df1ddb95fc1024d37f02a  packages/sdk/package.json
+9a346d5f4b5d8de524d8304c90ebaeb5af69588458dd046c5cc0ef0ffc005805  packages/sdk/src/payment-link.ts
+e93f826b46dd3d6a879485cced2e1da644204b71c4959b2b2b8a2fa3a5ed212c  packages/sdk/src/receipt-link.ts
+aff69efeb5181511558d5dad23f58e6f9075669d3d7e8fc4dce84d0d19c42138  packages/sdk/src/test/payment-link.test.ts
+28362e12ad00fe5153d1ffd418ce1fde6f5c9f8f5915522f0558fc68cda31e41  packages/sdk/src/test/receipt-link.test.ts
+NEW                                                               tests/e2e/browser-e2e.mjs
