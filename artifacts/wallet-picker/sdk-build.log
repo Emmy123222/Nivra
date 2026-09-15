@@ -1,0 +1,6 @@
+$ npm run build --workspace=@nivra/sdk
+
+> @nivra/sdk@0.1.0 build
+> rm -rf dist && tsc --project tsconfig.build.json
+
+[exit 0]

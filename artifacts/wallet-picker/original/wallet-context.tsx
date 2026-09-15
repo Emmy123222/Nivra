@@ -22,7 +22,6 @@ import {
 import { buildBrowserProviders } from "./providers";
 import { getNetworkConfig } from "./network";
 import { getOrCreateMerchantCredential, getStoredContractAddress, setStoredContractAddress } from "./invoice-store";
-import { WalletPicker, type WalletChoice } from "@/components/wallet-picker";
 
 export type WalletStatus = "disconnected" | "connecting" | "connected" | "error";
 
@@ -54,8 +53,6 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
   const [deployingContract, setDeployingContract] = useState(false);
   const [providers, setProviders] = useState<Awaited<ReturnType<typeof buildBrowserProviders>> | null>(null);
   const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
-  const [walletPickerOpen, setWalletPickerOpen] = useState(false);
-  const [walletChoices, setWalletChoices] = useState<WalletChoice[]>([]);
 
   useEffect(() => {
     let checks = 0;
@@ -71,21 +68,12 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const connect = useCallback(async () => {
-    const detected = listAvailableWallets().map(({ rdns, name, apiVersion }) => ({ rdns, name, apiVersion }));
-    setWalletChoices(detected);
-    setWalletPickerOpen(true);
-    setError(null);
-    if (status === "error") setStatus("disconnected");
-  }, [status]);
-
-  const connectToWallet = useCallback(async (walletRdns: string) => {
-    setWalletPickerOpen(false);
     setConnecting(true);
     setError(null);
     setStatus("connecting");
     try {
       const network = getNetworkConfig();
-      const api = await connectWallet(network.networkId, 20_000, walletRdns);
+      const api = await connectWallet(network.networkId);
       const built = await buildBrowserProviders(api, network);
       setConnectedApi(api);
       setProviders(built);
@@ -171,18 +159,7 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
     [status, error, connectedApi, contract, connecting, deployingContract, providers, walletAvailable, connect, ensureContract, getLedger],
   );
 
-  return (
-    <WalletContext.Provider value={value}>
-      {children}
-      <WalletPicker
-        open={walletPickerOpen}
-        wallets={walletChoices}
-        connecting={connecting}
-        onChoose={(rdns) => void connectToWallet(rdns)}
-        onClose={() => setWalletPickerOpen(false)}
-      />
-    </WalletContext.Provider>
-  );
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
 }
 
 export function useWallet(): WalletState {

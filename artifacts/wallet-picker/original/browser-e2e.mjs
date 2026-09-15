@@ -121,7 +121,6 @@ try {
   // contract/SDK tests and requires the user's wallet confirmation on Preprod.
   const connectedContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await connectedContext.addInitScript(() => {
-    window.__nivraSelectedWallet = null;
     const connectedApi = {
       getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
       // Deliberately omit hintUsage: released Lace variants can provide the v4
@@ -157,25 +156,12 @@ try {
       submitTransaction: async () => undefined,
     };
     window.midnight = {
-      lace: {
+      mock: {
         apiVersion: "4.0.1",
-        rdns: "io.lace.midnight",
-        name: "Lace",
+        rdns: "test.nivra.wallet",
+        name: "Nivra E2E Wallet",
         icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
-        connect: async () => {
-          window.__nivraSelectedWallet = "Lace";
-          return connectedApi;
-        },
-      },
-      oneAm: {
-        apiVersion: "4.0.1",
-        rdns: "io.1am.wallet",
-        name: "1AM Wallet",
-        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
-        connect: async () => {
-          window.__nivraSelectedWallet = "1AM";
-          return connectedApi;
-        },
+        connect: async () => connectedApi,
       },
     };
   });
@@ -186,14 +172,7 @@ try {
   });
   await connectedPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
   await connectedPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
-  const walletDialog = connectedPage.getByRole("dialog", { name: "Choose your wallet" });
-  await walletDialog.waitFor();
-  check("wallet picker opens before connector access", await walletDialog.isVisible());
-  check("wallet picker offers Lace", await walletDialog.getByRole("button", { name: /Lace Wallet/ }).isVisible());
-  check("wallet picker offers 1AM", await walletDialog.getByRole("button", { name: /1AM Wallet/ }).isVisible());
-  await walletDialog.getByRole("button", { name: /1AM Wallet/ }).click();
   await connectedPage.getByText("Wallet connected", { exact: true }).waitFor();
-  check("selected 1AM connector is used instead of the first wallet", (await connectedPage.evaluate(() => window.__nivraSelectedWallet)) === "1AM");
   check("Lace-compatible connector works without hintUsage", await connectedPage.getByText("Wallet connected", { exact: true }).isVisible());
   check("browser loads compiled ZK assets", await connectedPage.evaluate(() => window.__nivraZkAssetsLoaded === true));
   check("connected merchant is offered registry deployment", await connectedPage.getByText("Finish setting up your private registry").isVisible());
@@ -258,8 +237,8 @@ try {
     window.midnight = {
       mock: {
         apiVersion: "4.0.1",
-        rdns: "io.1am.wallet",
-        name: "1AM Wallet",
+        rdns: "test.nivra.configless-wallet",
+        name: "Configless E2E Wallet",
         icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
         connect: async () => connectedApi,
       },
@@ -269,7 +248,6 @@ try {
   configlessPage.on("pageerror", (error) => browserErrors.push(`configless pageerror: ${error.message}`));
   await configlessPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
   await configlessPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
-  await configlessPage.getByRole("dialog", { name: "Choose your wallet" }).getByRole("button", { name: /1AM Wallet/ }).click();
   await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
   check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
   check("hosted wallet RPCs are ordered and advisory hint failures do not abort connection", !(await configlessPage.getByText(/Cannot read properties of undefined/).isVisible().catch(() => false)));

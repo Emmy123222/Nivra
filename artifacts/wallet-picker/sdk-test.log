@@ -1,0 +1,16 @@
+$ npm test --workspace=@nivra/sdk
+
+> @nivra/sdk@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /home/emmanuel-ogheneovo/nivra/packages/sdk
+
+Sourcemap for "/home/emmanuel-ogheneovo/nivra/contracts/dist/managed/invoice_registry/contract/index.js" points to missing source files
+
+ Test Files  5 passed (5)
+      Tests  30 passed (30)
+   Start at  14:04:29
+   Duration  2.33s (transform 1.01s, setup 0ms, import 4.87s, tests 977ms, environment 1ms)
+
+[exit 0]

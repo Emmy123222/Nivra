@@ -1,0 +1,285 @@
+diff --git a/apps/web/src/components/wallet-picker.tsx b/apps/web/src/components/wallet-picker.tsx
+new file mode 100644
+index 0000000..8aa3809
+--- /dev/null
++++ b/apps/web/src/components/wallet-picker.tsx
+@@ -0,0 +1,107 @@
++"use client";
++
++import { useEffect } from "react";
++
++export type WalletChoice = {
++  readonly rdns: string;
++  readonly name: string;
++  readonly apiVersion: string;
++};
++
++type WalletPickerProps = {
++  readonly open: boolean;
++  readonly wallets: readonly WalletChoice[];
++  readonly connecting: boolean;
++  readonly onChoose: (rdns: string) => void;
++  readonly onClose: () => void;
++};
++
++const walletBrand = (wallet: WalletChoice) => {
++  const identity = `${wallet.name} ${wallet.rdns}`.toLowerCase();
++  if (identity.includes("1am")) return { name: "1AM Wallet", mark: "1A", tone: "from-[#8f5cff] to-[#d16cff]" };
++  if (identity.includes("lace")) return { name: "Lace Wallet", mark: "L", tone: "from-[#725cff] to-[#ff5cb8]" };
++  return { name: wallet.name, mark: wallet.name.slice(0, 2).toUpperCase(), tone: "from-[#c7ff5e] to-[#7ae7db]" };
++};
++
++export function WalletPicker({ open, wallets, connecting, onChoose, onClose }: WalletPickerProps) {
++  useEffect(() => {
++    if (!open) return;
++    const closeOnEscape = (event: KeyboardEvent) => {
++      if (event.key === "Escape" && !connecting) onClose();
++    };
++    window.addEventListener("keydown", closeOnEscape);
++    return () => window.removeEventListener("keydown", closeOnEscape);
++  }, [open, connecting, onClose]);
++
++  if (!open) return null;
++
++  return (
++    <div
++      className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(1,4,6,.78)] px-4 backdrop-blur-md"
++      onMouseDown={(event) => {
++        if (event.currentTarget === event.target && !connecting) onClose();
++      }}
++    >
++      <section
++        role="dialog"
++        aria-modal="true"
++        aria-labelledby="wallet-picker-title"
++        className="shine-border relative w-full max-w-md overflow-hidden rounded-[1.75rem] bg-[#101416] p-[1px] shadow-[0_32px_100px_rgba(0,0,0,.65)]"
++      >
++        <div className="relative rounded-[calc(1.75rem-1px)] border border-[var(--border)] bg-[linear-gradient(145deg,#151a1c,#0d1113)] p-6 sm:p-7">
++          <div className="pointer-events-none absolute -right-16 -top-20 h-44 w-44 rounded-full bg-[rgba(199,255,94,.1)] blur-3xl" />
++          <button
++            type="button"
++            onClick={onClose}
++            disabled={connecting}
++            aria-label="Close wallet selection"
++            className="absolute right-5 top-5 flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] text-lg text-[var(--text-muted)] transition hover:border-[var(--accent)] hover:text-[var(--text-primary)] disabled:opacity-40"
++          >
++            ×
++          </button>
++
++          <div className="relative pr-10">
++            <div className="eyebrow">Secure connection</div>
++            <h2 id="wallet-picker-title" className="mt-4 text-2xl font-semibold tracking-[-.04em] text-[var(--text-primary)]">Choose your wallet</h2>
++            <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">Select the Midnight wallet you want Nivra to connect with.</p>
++          </div>
++
++          <div className="relative mt-6 space-y-3">
++            {wallets.map((wallet) => {
++              const brand = walletBrand(wallet);
++              return (
++                <button
++                  key={`${wallet.rdns}:${wallet.apiVersion}`}
++                  type="button"
++                  onClick={() => onChoose(wallet.rdns)}
++                  disabled={connecting}
++                  className="group flex w-full items-center gap-4 rounded-2xl border border-[var(--border)] bg-[rgba(255,255,255,.025)] p-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-[rgba(199,255,94,.42)] hover:bg-[rgba(199,255,94,.055)] disabled:cursor-wait disabled:opacity-55"
++                >
++                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br ${brand.tone} text-sm font-black text-[#07100d] shadow-lg`}>
++                    {brand.mark}
++                  </span>
++                  <span className="min-w-0 flex-1">
++                    <span className="block text-sm font-semibold text-[var(--text-primary)]">{brand.name}</span>
++                    <span className="mt-1 block truncate text-[11px] text-[var(--text-muted)]">Detected · Connector v{wallet.apiVersion}</span>
++                  </span>
++                  <span className="text-lg text-[var(--accent)] transition-transform group-hover:translate-x-1">→</span>
++                </button>
++              );
++            })}
++          </div>
++
++          {wallets.length === 0 && (
++            <div className="relative mt-6 rounded-2xl border border-[rgba(245,203,118,.2)] bg-[var(--warning-bg)] p-4 text-sm leading-6 text-[var(--warning)]">
++              No compatible Midnight wallet is currently detected. Unlock Lace or 1AM, then reopen this selector.
++            </div>
++          )}
++
++          <div className="relative mt-5 flex items-center gap-2 text-[11px] leading-5 text-[var(--text-muted)]">
++            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[rgba(129,230,173,.1)] text-[var(--success)]">✓</span>
++            Nivra only connects to the wallet you select.
++          </div>
++        </div>
++      </section>
++    </div>
++  );
++}
+diff --git a/apps/web/src/lib/wallet-context.tsx b/apps/web/src/lib/wallet-context.tsx
+index 04c2909..dc8ac83 100644
+--- a/apps/web/src/lib/wallet-context.tsx
++++ b/apps/web/src/lib/wallet-context.tsx
+@@ -22,6 +22,7 @@ import {
+ import { buildBrowserProviders } from "./providers";
+ import { getNetworkConfig } from "./network";
+ import { getOrCreateMerchantCredential, getStoredContractAddress, setStoredContractAddress } from "./invoice-store";
++import { WalletPicker, type WalletChoice } from "@/components/wallet-picker";
+
+ export type WalletStatus = "disconnected" | "connecting" | "connected" | "error";
+
+@@ -53,6 +54,8 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
+   const [deployingContract, setDeployingContract] = useState(false);
+   const [providers, setProviders] = useState<Awaited<ReturnType<typeof buildBrowserProviders>> | null>(null);
+   const [walletAvailable, setWalletAvailable] = useState<boolean | null>(null);
++  const [walletPickerOpen, setWalletPickerOpen] = useState(false);
++  const [walletChoices, setWalletChoices] = useState<WalletChoice[]>([]);
+
+   useEffect(() => {
+     let checks = 0;
+@@ -68,12 +71,21 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
+   }, []);
+
+   const connect = useCallback(async () => {
++    const detected = listAvailableWallets().map(({ rdns, name, apiVersion }) => ({ rdns, name, apiVersion }));
++    setWalletChoices(detected);
++    setWalletPickerOpen(true);
++    setError(null);
++    if (status === "error") setStatus("disconnected");
++  }, [status]);
++
++  const connectToWallet = useCallback(async (walletRdns: string) => {
++    setWalletPickerOpen(false);
+     setConnecting(true);
+     setError(null);
+     setStatus("connecting");
+     try {
+       const network = getNetworkConfig();
+-      const api = await connectWallet(network.networkId);
++      const api = await connectWallet(network.networkId, 20_000, walletRdns);
+       const built = await buildBrowserProviders(api, network);
+       setConnectedApi(api);
+       setProviders(built);
+@@ -159,7 +171,18 @@ export function WalletContextProvider({ children }: { children: ReactNode }) {
+     [status, error, connectedApi, contract, connecting, deployingContract, providers, walletAvailable, connect, ensureContract, getLedger],
+   );
+
+-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
++  return (
++    <WalletContext.Provider value={value}>
++      {children}
++      <WalletPicker
++        open={walletPickerOpen}
++        wallets={walletChoices}
++        connecting={connecting}
++        onChoose={(rdns) => void connectToWallet(rdns)}
++        onClose={() => setWalletPickerOpen(false)}
++      />
++    </WalletContext.Provider>
++  );
+ }
+
+ export function useWallet(): WalletState {
+diff --git a/packages/sdk/src/wallet.ts b/packages/sdk/src/wallet.ts
+index 8ed533f..9b28bdb 100644
+--- a/packages/sdk/src/wallet.ts
++++ b/packages/sdk/src/wallet.ts
+@@ -76,15 +76,25 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  * honest outcome in any environment without a real Midnight wallet extension
+  * installed, not something to work around with a fallback.
+  */
+-export const connectWallet = async (networkId: string, timeoutMs = 20_000): Promise<ConnectedAPI> => {
++export const connectWallet = async (
++  networkId: string,
++  timeoutMs = 20_000,
++  walletRdns?: string,
++): Promise<ConnectedAPI> => {
+   const deadline = Date.now() + timeoutMs;
+   let wallet: InitialAPI | undefined;
+   while (Date.now() < deadline) {
+-    wallet = listAvailableWallets()[0];
++    const availableWallets = listAvailableWallets();
++    wallet = walletRdns
++      ? availableWallets.find((candidate) => candidate.rdns === walletRdns)
++      : availableWallets[0];
+     if (wallet) break;
+     await sleep(100);
+   }
+   if (!wallet) {
++    if (walletRdns) {
++      throw new Error("The selected wallet is no longer available. Unlock the extension and choose it again.");
++    }
+     throw new Error("No Midnight wallet found. Install a DApp Connector-compatible wallet extension and reload.");
+   }
+
+diff --git a/tests/e2e/browser-e2e.mjs b/tests/e2e/browser-e2e.mjs
+index 919f3c1..eabb88d 100644
+--- a/tests/e2e/browser-e2e.mjs
++++ b/tests/e2e/browser-e2e.mjs
+@@ -121,6 +121,7 @@ try {
+   // contract/SDK tests and requires the user's wallet confirmation on Preprod.
+   const connectedContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+   await connectedContext.addInitScript(() => {
++    window.__nivraSelectedWallet = null;
+     const connectedApi = {
+       getConnectionStatus: async () => ({ status: "connected", networkId: "preprod" }),
+       // Deliberately omit hintUsage: released Lace variants can provide the v4
+@@ -156,12 +157,25 @@ try {
+       submitTransaction: async () => undefined,
+     };
+     window.midnight = {
+-      mock: {
++      lace: {
+         apiVersion: "4.0.1",
+-        rdns: "test.nivra.wallet",
+-        name: "Nivra E2E Wallet",
++        rdns: "io.lace.midnight",
++        name: "Lace",
+         icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
+-        connect: async () => connectedApi,
++        connect: async () => {
++          window.__nivraSelectedWallet = "Lace";
++          return connectedApi;
++        },
++      },
++      oneAm: {
++        apiVersion: "4.0.1",
++        rdns: "io.1am.wallet",
++        name: "1AM Wallet",
++        icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
++        connect: async () => {
++          window.__nivraSelectedWallet = "1AM";
++          return connectedApi;
++        },
+       },
+     };
+   });
+@@ -172,7 +186,14 @@ try {
+   });
+   await connectedPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
+   await connectedPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
++  const walletDialog = connectedPage.getByRole("dialog", { name: "Choose your wallet" });
++  await walletDialog.waitFor();
++  check("wallet picker opens before connector access", await walletDialog.isVisible());
++  check("wallet picker offers Lace", await walletDialog.getByRole("button", { name: /Lace Wallet/ }).isVisible());
++  check("wallet picker offers 1AM", await walletDialog.getByRole("button", { name: /1AM Wallet/ }).isVisible());
++  await walletDialog.getByRole("button", { name: /1AM Wallet/ }).click();
+   await connectedPage.getByText("Wallet connected", { exact: true }).waitFor();
++  check("selected 1AM connector is used instead of the first wallet", (await connectedPage.evaluate(() => window.__nivraSelectedWallet)) === "1AM");
+   check("Lace-compatible connector works without hintUsage", await connectedPage.getByText("Wallet connected", { exact: true }).isVisible());
+   check("browser loads compiled ZK assets", await connectedPage.evaluate(() => window.__nivraZkAssetsLoaded === true));
+   check("connected merchant is offered registry deployment", await connectedPage.getByText("Finish setting up your private registry").isVisible());
+@@ -237,8 +258,8 @@ try {
+     window.midnight = {
+       mock: {
+         apiVersion: "4.0.1",
+-        rdns: "test.nivra.configless-wallet",
+-        name: "Configless E2E Wallet",
++        rdns: "io.1am.wallet",
++        name: "1AM Wallet",
+         icon: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg'/>",
+         connect: async () => connectedApi,
+       },
+@@ -248,6 +269,7 @@ try {
+   configlessPage.on("pageerror", (error) => browserErrors.push(`configless pageerror: ${error.message}`));
+   await configlessPage.goto(`${baseUrl}/dashboard`, { waitUntil: "networkidle" });
+   await configlessPage.getByRole("banner").getByRole("button", { name: "Connect wallet" }).click();
++  await configlessPage.getByRole("dialog", { name: "Choose your wallet" }).getByRole("button", { name: /1AM Wallet/ }).click();
+   await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
+   check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
+   check("hosted wallet RPCs are ordered and advisory hint failures do not abort connection", !(await configlessPage.getByText(/Cannot read properties of undefined/).isVisible().catch(() => false)));

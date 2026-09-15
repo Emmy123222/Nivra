@@ -1,0 +1,71 @@
+Wallet choice modal — verification record
+
+Baseline behavior
+- Every Connect button called connectWallet(networkId).
+- connectWallet selected listAvailableWallets()[0].
+- A user with Lace and 1AM installed was never asked which connector to use.
+
+Modified behavior
+- Every existing Connect button now opens one global, accessible modal.
+- The modal lists all detected compatible connectors and identifies Lace and 1AM.
+- No connector connect() method runs before the user chooses.
+- The selected wallet rdns is passed to the SDK; the SDK connects only that wallet.
+- The modal supports Escape, backdrop close, a visible close button, mobile layout,
+  detected API version, and a connecting-disabled state.
+
+Baseline integrity
+Command: sha256sum packages/sdk/src/wallet.ts apps/web/src/lib/wallet-context.tsx tests/e2e/browser-e2e.mjs
+Exit status: 0
+Literal output: baseline-sha256.txt
+
+Modified integrity
+Command: sha256sum packages/sdk/src/wallet.ts apps/web/src/lib/wallet-context.tsx apps/web/src/components/wallet-picker.tsx tests/e2e/browser-e2e.mjs
+Exit status: 0
+Literal output: modified-sha256.txt
+
+SDK build and test
+Commands:
+  npm run build --workspace=@nivra/sdk
+  npm test --workspace=@nivra/sdk
+Exit statuses: 0, 0
+Literal results:
+  5 test files passed
+  30 tests passed
+Full outputs: sdk-build.log, sdk-test.log
+
+Web type check and production build
+Commands:
+  npm run typecheck --workspace=web
+  npm run build --workspace=web
+Exit statuses: 0, 0
+Literal results:
+  tsc --noEmit completed with no diagnostics
+  Compiled successfully in 13.0s
+  Generating static pages using 7 workers (9/9)
+Full outputs: web-typecheck.log, web-build.log
+
+Browser E2E
+Command: BASE_URL=http://localhost:3001 E2E_OUTPUT_DIR=artifacts/wallet-picker/e2e npm run test:e2e
+Input: optimized production server with both Lace and 1AM connector mocks injected
+Exit status: 0
+Literal results:
+  PASS wallet picker opens before connector access
+  PASS wallet picker offers Lace
+  PASS wallet picker offers 1AM
+  PASS selected 1AM connector is used instead of the first wallet
+  PASS browser emitted no uncaught errors
+  41 browser checks passed
+Full output: browser-e2e.log
+Machine report: e2e/browser-report.json
+Visual record: wallet-picker-mobile.png
+
+Rollback
+Command: artifacts/wallet-picker/rollback.sh
+Exit status: 0
+Literal results:
+  packages/sdk/src/wallet.ts: OK
+  apps/web/src/lib/wallet-context.tsx: OK
+  tests/e2e/browser-e2e.mjs: OK
+The new component was removed, the complete patch was reapplied, and all four
+modified artifact hashes returned OK.
+Full output: rollback-verification.txt

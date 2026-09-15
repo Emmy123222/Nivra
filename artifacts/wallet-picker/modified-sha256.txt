@@ -1,0 +1,4 @@
+846423381c6505f7627192f862e4bc84a9a8ce1e7f7d9610d451df170c116b21  packages/sdk/src/wallet.ts
+38185a3382c3a0452d63d481911bd5e8e8ae754d9ee9a6c2f2c6e865beec7970  apps/web/src/lib/wallet-context.tsx
+048926a8df827382b11ad563e4a5838936da97188248975eb0d270c35eda2422  apps/web/src/components/wallet-picker.tsx
+52654a0b06019053cfffb70880bae68c8e1734dbbcf60d48e3bb0b4bf0f0b689  tests/e2e/browser-e2e.mjs

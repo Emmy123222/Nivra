@@ -1,0 +1,7 @@
+packages/sdk/src/wallet.ts: OK
+apps/web/src/lib/wallet-context.tsx: OK
+tests/e2e/browser-e2e.mjs: OK
+packages/sdk/src/wallet.ts: OK
+apps/web/src/lib/wallet-context.tsx: OK
+apps/web/src/components/wallet-picker.tsx: OK
+tests/e2e/browser-e2e.mjs: OK

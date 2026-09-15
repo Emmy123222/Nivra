@@ -76,25 +76,15 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * honest outcome in any environment without a real Midnight wallet extension
  * installed, not something to work around with a fallback.
  */
-export const connectWallet = async (
-  networkId: string,
-  timeoutMs = 20_000,
-  walletRdns?: string,
-): Promise<ConnectedAPI> => {
+export const connectWallet = async (networkId: string, timeoutMs = 20_000): Promise<ConnectedAPI> => {
   const deadline = Date.now() + timeoutMs;
   let wallet: InitialAPI | undefined;
   while (Date.now() < deadline) {
-    const availableWallets = listAvailableWallets();
-    wallet = walletRdns
-      ? availableWallets.find((candidate) => candidate.rdns === walletRdns)
-      : availableWallets[0];
+    wallet = listAvailableWallets()[0];
     if (wallet) break;
     await sleep(100);
   }
   if (!wallet) {
-    if (walletRdns) {
-      throw new Error("The selected wallet is no longer available. Unlock the extension and choose it again.");
-    }
     throw new Error("No Midnight wallet found. Install a DApp Connector-compatible wallet extension and reload.");
   }
 
