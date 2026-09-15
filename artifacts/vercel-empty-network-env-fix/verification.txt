@@ -1,0 +1,73 @@
+Vercel empty-network environment fix — verification record
+
+Confirmed hosted baseline
+Command: Playwright diagnostic with an injected compatible DApp Connector
+URL: https://web-phi-eight-78.vercel.app/dashboard
+Exit status: 0
+Literal output:
+  HTTP: 200
+  wallet API calls: []
+  visible error: Cannot read properties of undefined (reading 'networkId')
+Interpretation: the failure occurs before wallet.connect(). The served JavaScript
+contained getNetworkConfig => NETWORKS[""], proving Vercel compiled
+NEXT_PUBLIC_NETWORK_ID as an empty string.
+Full output: hosted-baseline.txt
+
+Changed field
+- apps/web/src/lib/network.ts now normalizes NEXT_PUBLIC_NETWORK_ID.
+- "preview" selects Preview; empty, invalid, or unset values select Preprod.
+- An empty NEXT_PUBLIC_PROOF_SERVER_URL now selects the documented local default
+  instead of becoming an unusable empty URL.
+
+Baseline integrity
+Command: sha256sum apps/web/src/lib/network.ts
+Exit status: 0
+Literal output:
+  7f1775254cfa6ed1e634728ae11ffdb53c4b7edca03ee97f0d6cd0ddb3fa032b  apps/web/src/lib/network.ts
+
+Modified integrity
+Command: sha256sum apps/web/src/lib/network.ts
+Exit status: 0
+Literal output:
+  9c3962e739e3dc848710a4ab3f4c737051bcb5a1ac226a8549991520800876f7  apps/web/src/lib/network.ts
+
+Type check
+Command: npm run typecheck --workspace=web
+Exit status: 0
+Literal result: tsc --noEmit completed with no diagnostics.
+Full output: typecheck.log
+
+Production build with the exact hosted misconfiguration
+Command: NEXT_PUBLIC_NETWORK_ID="" NEXT_PUBLIC_PROOF_SERVER_URL="" npm run build --workspace=web
+Exit status: 0
+Literal results:
+  Compiled successfully in 12.8s
+  Generating static pages using 7 workers (9/9)
+Full output: build-empty-env.log
+
+Compiled bundle assertion
+Command: inspect the optimized chunk containing indexer.preprod.midnight.network
+Exit status: 0
+Literal results:
+  invalid empty lookup absent: True
+  preprod default present: True
+Full output: compiled-bundle-check.log
+
+Browser E2E against that empty-environment production build
+Command: BASE_URL=http://localhost:3001 E2E_OUTPUT_DIR=artifacts/vercel-empty-network-env-fix/e2e npm run test:e2e
+Exit status: 0
+Literal results:
+  PASS hosted 1AM connection tolerates missing wallet configuration
+  PASS hosted wallet RPCs are ordered and advisory hint failures do not abort connection
+  PASS browser emitted no uncaught errors
+  34 browser checks passed
+Full output: browser-e2e.log
+Machine report: e2e/browser-report.json
+
+Rollback
+Command: artifacts/vercel-empty-network-env-fix/rollback.sh
+Exit status: 0
+Literal output:
+  apps/web/src/lib/network.ts: OK
+The patch was reapplied and the modified hash also returned OK.
+Full output: rollback-verification.txt

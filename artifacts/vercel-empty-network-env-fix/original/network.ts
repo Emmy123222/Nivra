@@ -14,8 +14,6 @@ export type NetworkConfig = {
   readonly proofServer: string;
 };
 
-const configuredProofServer = process.env.NEXT_PUBLIC_PROOF_SERVER_URL?.trim() || "http://127.0.0.1:6300";
-
 const NETWORKS: Record<NetworkId, NetworkConfig> = {
   preprod: {
     networkId: "preprod",
@@ -24,18 +22,15 @@ const NETWORKS: Record<NetworkId, NetworkConfig> = {
     // No public proof server — per docs/TOOLCHAIN.md this project has no Docker/proof-server
     // available in its own dev sandbox either. A real deployment needs a proof server the
     // browser can reach (self-hosted, e.g. via NEXT_PUBLIC_PROOF_SERVER_URL).
-    proofServer: configuredProofServer,
+    proofServer: process.env.NEXT_PUBLIC_PROOF_SERVER_URL ?? "http://127.0.0.1:6300",
   },
   preview: {
     networkId: "preview",
     indexer: "https://indexer.preview.midnight.network/api/v3/graphql",
     indexerWS: "wss://indexer.preview.midnight.network/api/v3/graphql/ws",
-    proofServer: configuredProofServer,
+    proofServer: process.env.NEXT_PUBLIC_PROOF_SERVER_URL ?? "http://127.0.0.1:6300",
   },
 };
 
-export const getNetworkConfig = (): NetworkConfig => {
-  const configuredNetworkId = process.env.NEXT_PUBLIC_NETWORK_ID?.trim().toLowerCase();
-  const networkId: NetworkId = configuredNetworkId === "preview" ? "preview" : "preprod";
-  return NETWORKS[networkId];
-};
+export const getNetworkConfig = (): NetworkConfig =>
+  NETWORKS[(process.env.NEXT_PUBLIC_NETWORK_ID as NetworkId | undefined) ?? "preprod"];

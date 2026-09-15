@@ -1,0 +1,6 @@
+$ hosted Playwright diagnostic with injected DApp Connector
+URL: https://web-phi-eight-78.vercel.app/dashboard
+HTTP: 200
+wallet API calls: []
+visible error: Cannot read properties of undefined (reading 'networkId')
+[exit 0]
