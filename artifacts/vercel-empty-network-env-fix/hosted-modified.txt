@@ -1,0 +1,8 @@
+$ hosted Playwright regression with injected DApp Connector
+URL: https://web-phi-eight-78.vercel.app/dashboard
+HTTP: 200
+wallet API calls: ["connect:preprod","getConnectionStatus","hintUsage","getConnectionStatus","getConfiguration","getShieldedAddresses","getProvingProvider"]
+wallet connected: PASS
+networkId error absent: PASS
+uncaught page errors: 0
+[exit 0]

@@ -1,0 +1,6 @@
+apps/web/src/app/dashboard/create/page.tsx: OK
+apps/web/src/app/checkout/page.tsx: OK
+tests/e2e/browser-e2e.mjs: OK
+apps/web/src/app/dashboard/create/page.tsx: OK
+apps/web/src/app/checkout/page.tsx: OK
+tests/e2e/browser-e2e.mjs: OK

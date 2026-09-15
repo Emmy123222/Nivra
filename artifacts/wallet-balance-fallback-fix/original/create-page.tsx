@@ -8,13 +8,6 @@ import { addStoredInvoice } from "@/lib/invoice-store";
 
 type WalletToken = { type: string; encoded: string; balance: bigint };
 
-// Public Preprod test asset previously recorded in docs/TESTNET_ADDRESSES.md.
-// Merchants do not need to own the settlement asset to issue an invoice, so it
-// remains usable when a wallet cannot serve its optional balance preview.
-const SAVED_PREPROD_TOKEN_COLOR = "e41a0d35c72ef2acb6eb4384611725b5c906a59829b3e8fb4dff3f292718ef5e";
-const normalizeTokenColor = (value: string) => value.trim().replace(/^0x/i, "").toLowerCase();
-const isTokenColor = (value: string) => /^[0-9a-f]{64}$/.test(normalizeTokenColor(value));
-
 // Assumed convention, not yet verified against a live network (no Docker/proof
 // server available in this sandbox — see docs/TOOLCHAIN.md): `expiry` is
 // seconds since the Unix epoch, matching block-timestamp conventions used by
@@ -27,11 +20,9 @@ export default function CreateInvoicePage() {
   const { status, contract, connectedApi, ensureContract } = useWallet();
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
-  const [tokenColor, setTokenColor] = useState(SAVED_PREPROD_TOKEN_COLOR);
+  const [tokenColor, setTokenColor] = useState("");
   const [walletTokens, setWalletTokens] = useState<WalletToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(true);
-  const [balanceError, setBalanceError] = useState<string | null>(null);
-  const [balanceRetry, setBalanceRetry] = useState(0);
   const [days, setDays] = useState("7");
   const [metadataNote, setMetadataNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -40,8 +31,6 @@ export default function CreateInvoicePage() {
   useEffect(() => {
     if (!connectedApi) return;
     let cancelled = false;
-    setLoadingTokens(true);
-    setBalanceError(null);
     void connectedApi
       .getShieldedBalances()
       .then((balances) => {
@@ -52,23 +41,16 @@ export default function CreateInvoicePage() {
           // Avoid round-tripping them through the ledger WASM just to display/select one.
           .map(([type, balance]) => ({ type, balance, encoded: type.toLowerCase() }));
         setWalletTokens(tokens);
-        setTokenColor((current) => {
-          const normalized = normalizeTokenColor(current);
-          return tokens.some((token) => token.encoded === normalized)
-            ? normalized
-            : tokens[0]?.encoded || normalized || SAVED_PREPROD_TOKEN_COLOR;
-        });
+        setTokenColor((current) => current || tokens[0]?.encoded || "");
       })
-      .catch(() => {
-        if (cancelled) return;
-        setWalletTokens([]);
-        setBalanceError("Wallet balance lookup is temporarily unavailable. The saved token color below can still be used.");
+      .catch((e) => {
+        if (!cancelled) setError(`Could not read wallet balances: ${e instanceof Error ? e.message : String(e)}`);
       })
       .finally(() => {
         if (!cancelled) setLoadingTokens(false);
       });
     return () => { cancelled = true; };
-  }, [connectedApi, balanceRetry]);
+  }, [connectedApi]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,9 +66,8 @@ export default function CreateInvoicePage() {
       setError("Amount must be between 1 and the Uint64 maximum.");
       return;
     }
-    const normalizedTokenColor = normalizeTokenColor(tokenColor);
-    if (!isTokenColor(normalizedTokenColor)) {
-      setError("Token color must contain exactly 64 hexadecimal characters.");
+    if (!tokenColor) {
+      setError("Your wallet has no shielded token balance available for invoicing.");
       return;
     }
     const parsedDays = Number(days);
@@ -100,7 +81,7 @@ export default function CreateInvoicePage() {
 
       const invoice = {
         amount: parsedAmount,
-        tokenColor: hexToBytes(normalizedTokenColor),
+        tokenColor: hexToBytes(tokenColor),
         expiry: nowPlusDays(parsedDays),
         // The metadata note lives only in this browser (see invoice-store.ts) — only its
         // hash goes on-chain, per docs/PRIVACY_MODEL.md.
@@ -126,7 +107,7 @@ export default function CreateInvoicePage() {
       addStoredInvoice({
         commitment: commitmentHex,
         amount: invoice.amount.toString(),
-        tokenColor: normalizedTokenColor,
+        tokenColor,
         expiry: invoice.expiry.toString(),
         metadataHash: bytesToHex(invoice.metadataHash),
         invoiceSecret: bytesToHex(invoice.invoiceSecret),
@@ -189,41 +170,22 @@ export default function CreateInvoicePage() {
         </Field>
 
         <Field label="Settlement token">
-          {loadingTokens ? (
-            <div className="input-field w-full rounded-lg px-3 py-2 text-sm text-[var(--text-muted)]">Reading wallet balances…</div>
-          ) : walletTokens.length > 0 ? (
-            <select
-              value={tokenColor}
-              onChange={(e) => setTokenColor(e.target.value)}
-              className="input-field w-full rounded-lg px-3 py-2 text-sm"
-              required
-            >
-              {walletTokens.map((token) => (
-                <option key={token.type} value={token.encoded}>
-                  {token.type.slice(0, 18)}{token.type.length > 18 ? "…" : ""} — {token.balance.toString()} available
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              value={tokenColor}
-              onChange={(e) => setTokenColor(e.target.value)}
-              placeholder="64-character token color"
-              spellCheck={false}
-              className="input-field w-full rounded-lg px-3 py-2 font-mono text-xs"
-              required
-            />
-          )}
+          <select
+            value={tokenColor}
+            onChange={(e) => setTokenColor(e.target.value)}
+            disabled={loadingTokens || walletTokens.length === 0}
+            className="input-field w-full rounded-lg px-3 py-2 text-sm"
+            required
+          >
+            {loadingTokens && <option value="">Reading wallet balances…</option>}
+            {!loadingTokens && walletTokens.length === 0 && <option value="">No shielded balances found</option>}
+            {walletTokens.map((token) => (
+              <option key={token.type} value={token.encoded}>
+                {token.type.slice(0, 18)}{token.type.length > 18 ? "…" : ""} — {token.balance.toString()} available
+              </option>
+            ))}
+          </select>
         </Field>
-
-        {balanceError && (
-          <div className="rounded-lg bg-[var(--warning-bg)] px-4 py-3 text-xs leading-5 text-[var(--warning)]">
-            <p>{balanceError}</p>
-            <button type="button" onClick={() => setBalanceRetry((value) => value + 1)} className="mt-1 font-semibold underline">
-              Retry wallet lookup
-            </button>
-          </div>
-        )}
 
         <Field label="Expires in (days)">
           <input
@@ -269,9 +231,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const hexToBytes = (hex: string): Uint8Array => {
-  const clean = normalizeTokenColor(hex);
-  if (!/^[0-9a-f]{64}$/.test(clean)) throw new Error("Token color must contain exactly 64 hexadecimal characters.");
-  return new Uint8Array(clean.match(/.{2}/g)!.map((byte) => Number.parseInt(byte, 16)));
+  const clean = hex.trim().toLowerCase();
+  const out = new Uint8Array(32);
+  const bytes = clean.match(/.{1,2}/g) ?? [];
+  bytes.slice(0, 32).forEach((b, i) => (out[i] = parseInt(b, 16)));
+  return out;
 };
 
 const sha256 = async (text: string): Promise<Uint8Array> => {

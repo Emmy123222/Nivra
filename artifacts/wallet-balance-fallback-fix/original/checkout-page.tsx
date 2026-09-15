@@ -95,22 +95,13 @@ export default function CheckoutPage() {
         throw new Error("This invoice has expired. Ask the merchant for a new invoice.");
       }
       if (!connectedApi) throw new Error("Wallet connection was lost. Reconnect and try again.");
-      // This is only an early UX check. Some connector builds intermittently
-      // fail the balance-read RPC even though transaction balancing works, so
-      // let the wallet perform the authoritative check during settlement.
-      try {
-        const balances = await connectedApi.getShieldedBalances();
-        const matchingBalance = Object.entries(balances).find(
-          // DApp Connector token keys are already hex-encoded raw token types.
-          ([type]) => type.toLowerCase() === payload.tokenColor.toLowerCase(),
-        )?.[1] ?? BigInt(0);
-        if (matchingBalance < BigInt(payload.amount)) {
-          throw new Error(`Insufficient shielded balance. Required ${payload.amount}; available ${matchingBalance.toString()}.`);
-        }
-      } catch (balanceError) {
-        if (balanceError instanceof Error && balanceError.message.startsWith("Insufficient shielded balance.")) {
-          throw balanceError;
-        }
+      const balances = await connectedApi.getShieldedBalances();
+      const matchingBalance = Object.entries(balances).find(
+        // DApp Connector token keys are already hex-encoded raw token types.
+        ([type]) => type.toLowerCase() === payload.tokenColor.toLowerCase(),
+      )?.[1] ?? BigInt(0);
+      if (matchingBalance < BigInt(payload.amount)) {
+        throw new Error(`Insufficient shielded balance. Required ${payload.amount}; available ${matchingBalance.toString()}.`);
       }
 
       const payerReceiptSecret = crypto.getRandomValues(new Uint8Array(32));

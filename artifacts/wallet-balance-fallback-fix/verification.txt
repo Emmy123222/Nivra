@@ -1,0 +1,70 @@
+Wallet balance request recovery — verification record
+
+Observed baseline
+Route: /dashboard/create
+Wallet RPC: getShieldedBalances()
+Literal wallet result: Error("Request failed")
+Previous visible behavior:
+  No shielded balances found
+  Could not read wallet balances: Request failed
+The disabled token selector blocked invoice creation.
+
+Changed behavior
+- Invoice issuance no longer depends on a merchant wallet balance lookup.
+- Successful balance reads still populate the settlement-token selector.
+- Failed or empty reads expose the saved Preprod token color as an editable,
+  validated 32-byte hexadecimal value.
+- The warning is recoverable with Retry wallet lookup.
+- Checkout retains its early insufficient-balance check when a balance response
+  succeeds, while the wallet transaction balancer remains authoritative if the
+  optional read request itself fails.
+
+Baseline integrity
+Command: sha256sum apps/web/src/app/dashboard/create/page.tsx apps/web/src/app/checkout/page.tsx tests/e2e/browser-e2e.mjs
+Exit status: 0
+Literal output: baseline-sha256.txt
+
+Modified integrity
+Command: sha256sum apps/web/src/app/dashboard/create/page.tsx apps/web/src/app/checkout/page.tsx tests/e2e/browser-e2e.mjs
+Exit status: 0
+Literal output: modified-sha256.txt
+
+Type check
+Command: npm run typecheck --workspace=web
+Input: modified application
+Exit status: 0
+Literal result: tsc --noEmit completed with no diagnostics.
+Full output: typecheck.log
+
+Production build
+Command: npm run build --workspace=web
+Input: modified application and tracked Compact artifacts
+Exit status: 0
+Literal results:
+  Compiled successfully in 13.3s
+  Generating static pages using 7 workers (9/9)
+  Seven application routes built.
+Full output: build.log
+
+Browser E2E
+Command: BASE_URL=http://localhost:3001 E2E_OUTPUT_DIR=artifacts/wallet-balance-fallback-fix/e2e npm run test:e2e
+Input: optimized production server plus connector mock whose getShieldedBalances throws Error("Request failed")
+Exit status: 0
+Literal results:
+  PASS invoice form remains usable when wallet balance lookup fails
+  PASS wallet balance failure is shown as recoverable guidance
+  PASS raw wallet request error is not shown
+  PASS browser emitted no uncaught errors
+  37 browser checks passed
+Full output: browser-e2e.log
+Machine report: e2e/browser-report.json
+
+Rollback
+Command: artifacts/wallet-balance-fallback-fix/rollback.sh
+Exit status: 0
+Literal output:
+  apps/web/src/app/dashboard/create/page.tsx: OK
+  apps/web/src/app/checkout/page.tsx: OK
+  tests/e2e/browser-e2e.mjs: OK
+The patch was reapplied and all modified hashes also returned OK.
+Full output: rollback-verification.txt

@@ -224,9 +224,6 @@ try {
           shieldedEncryptionPublicKey: "d7d0fe19c83ee6ffe79da2caab1aac06bc378af32072409cdfc72ff18d86bbeb",
         };
       },
-      getShieldedBalances: async () => {
-        throw new Error("Request failed");
-      },
       getProvingProvider: async () => ({
         check: async () => [],
         prove: async () => new Uint8Array(),
@@ -251,12 +248,6 @@ try {
   await configlessPage.getByText("Wallet connected", { exact: true }).waitFor();
   check("hosted 1AM connection tolerates missing wallet configuration", await configlessPage.getByText("Wallet connected", { exact: true }).isVisible());
   check("hosted wallet RPCs are ordered and advisory hint failures do not abort connection", !(await configlessPage.getByText(/Cannot read properties of undefined/).isVisible().catch(() => false)));
-  await configlessPage.getByRole("link", { name: /New invoice/ }).click();
-  await configlessPage.getByText(/Wallet balance lookup is temporarily unavailable/).waitFor();
-  const savedTokenColor = "e41a0d35c72ef2acb6eb4384611725b5c906a59829b3e8fb4dff3f292718ef5e";
-  check("invoice form remains usable when wallet balance lookup fails", (await configlessPage.getByLabel("Settlement token").inputValue()) === savedTokenColor);
-  check("wallet balance failure is shown as recoverable guidance", await configlessPage.getByRole("button", { name: "Retry wallet lookup" }).isVisible());
-  check("raw wallet request error is not shown", (await configlessPage.getByText("Could not read wallet balances: Request failed").count()) === 0);
   await configlessContext.close();
 
   check("browser emitted no uncaught errors", browserErrors.length === 0, browserErrors.join(" | "));
